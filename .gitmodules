@@ -3,7 +3,7 @@
 	url = https://github.com/raider001/ReviewToolDefaultSyntaxHighlighterPlugin.git
 [submodule "ReviewToolDefaultNotificationPlugin"]
 	path = ReviewToolDefaultNotificationPlugin
-	url = https://github.com/raider001/ReviewToolDefaulNotificationPlugin.git
+	url = https://github.com/raider001/ReviewToolDefaultNotificationPlugin.git
 [submodule "ReviewToolDefaultUserPlugin"]
 	path = ReviewToolDefaultUserPlugin
 	url = https://github.com/raider001/ReviewToolDefaultUserPlugin.git
