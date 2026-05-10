@@ -3,8 +3,14 @@
   <component name="Encoding">
     <file url="file://$PROJECT_DIR$/ReviewToolApplication/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/ReviewToolApplication/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/ReviewToolDefaultNotificationPlugin/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/ReviewToolDefaultNotificationPlugin/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/ReviewToolDefaultPlugins/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/ReviewToolDefaultPlugins/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/ReviewToolDefaultSyntaxHighlighterPlugin/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/ReviewToolDefaultSyntaxHighlighterPlugin/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/ReviewToolDefaultUserPlugin/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/ReviewToolDefaultUserPlugin/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/ReviewToolPluginInterface/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/ReviewToolPluginInterface/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />

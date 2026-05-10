@@ -6,16 +6,24 @@
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
-        <module name="review-tool-plugin-interface" />
+        <module name="review-tool-default-syntax-highlighter-plugin" />
         <module name="review-tool-application" />
-        <module name="review-tool-default-plugins" />
+        <module name="review-tool-plugin-interface" />
+        <module name="review-tool-default-notification-plugin" />
+        <module name="review-tool-default-user-plugin" />
       </profile>
     </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="review-tool-default-plugins" target="25" />
+    </bytecodeTargetLevel>
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
       <module name="review-tool-application" options="-Xlint:all" />
+      <module name="review-tool-default-notification-plugin" options="-Xlint:all" />
       <module name="review-tool-default-plugins" options="-Xlint:all" />
+      <module name="review-tool-default-syntax-highlighter-plugin" options="-Xlint:all" />
+      <module name="review-tool-default-user-plugin" options="-Xlint:all" />
       <module name="review-tool-plugin-interface" options="-Xlint:all" />
     </option>
   </component>
