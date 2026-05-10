@@ -20,6 +20,9 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -247,6 +250,8 @@ public class ReviewItemManager {
             .orElse(copies.getFirst());
 
         String primaryRepository = determinePrimaryRepository(reviewId, copies);
+        String mergedTitle = resolveLatestValue(copies, ReviewItem::getTitle, this::isMeaningfulTitle, latest.getTitle());
+        String mergedAuthor = resolveLatestValue(copies, ReviewItem::getAuthor, this::isMeaningfulAuthor, latest.getAuthor());
         LinkedHashSet<String> repositories = new LinkedHashSet<>();
         LinkedHashSet<String> reviewers = new LinkedHashSet<>();
         String branch = latest.getBranch();
@@ -265,8 +270,8 @@ public class ReviewItemManager {
 
         return new ReviewItem(
             latest.getReviewId(),
-            latest.getTitle(),
-            latest.getAuthor(),
+            mergedTitle,
+            mergedAuthor,
             primaryRepository,
             new ArrayList<>(repositories),
             latest.getStatus(),
@@ -277,28 +282,57 @@ public class ReviewItemManager {
         );
     }
 
+    private String resolveLatestValue(List<ReviewItem> copies,
+                                      Function<ReviewItem, String> valueExtractor,
+                                      Predicate<String> isMeaningful,
+                                      String fallback) {
+        return copies.stream()
+            .sorted(Comparator.comparingLong(ReviewItem::getLastUpdate).reversed())
+            .map(valueExtractor)
+            .filter(Objects::nonNull)
+            .filter(isMeaningful)
+            .findFirst()
+            .orElse(fallback);
+    }
+
+    private boolean isMeaningfulTitle(String title) {
+        return !title.isBlank() && !"Untitled Review".equalsIgnoreCase(title.trim());
+    }
+
+    private boolean isMeaningfulAuthor(String author) {
+        return !author.isBlank() && !"Unknown".equalsIgnoreCase(author.trim());
+    }
+
     private String determinePrimaryRepository(String reviewId, List<ReviewItem> copies) {
-        String selected = null;
-        for (ReviewItem copy : copies) {
-            String candidate = copy.getPrimaryRepository();
-            if (candidate == null) {
-                continue;
-            }
-            if (selected == null) {
-                selected = candidate;
-            } else if (!selected.equals(candidate)) {
-                LOGGER.warn("Review '{}' has conflicting primary repositories: '{}' vs '{}'. Using '{}'.",
-                    reviewId, selected, candidate, selected);
-            }
-        }
-        return selected != null
-            ? selected
-            : copies.stream()
-                .map(ReviewItem::getRepositories)
-                .filter(repos -> repos != null && !repos.isEmpty())
-                .map(List::getFirst)
-                .findFirst()
+        List<ReviewItem> primaryCandidates = copies.stream()
+            .filter(copy -> copy.getPrimaryRepository() != null && !copy.getPrimaryRepository().isBlank())
+            .toList();
+
+        if (!primaryCandidates.isEmpty()) {
+            String selected = primaryCandidates.stream()
+                .max(Comparator.comparingLong(ReviewItem::getLastUpdate)
+                    .thenComparing(ReviewItem::getPrimaryRepository))
+                .map(ReviewItem::getPrimaryRepository)
                 .orElse(null);
+
+            Set<String> uniqueCandidates = primaryCandidates.stream()
+                .map(ReviewItem::getPrimaryRepository)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+            if (uniqueCandidates.size() > 1) {
+                LOGGER.warn("Review '{}' has conflicting primary repositories {}. Auto-resolved to '{}' from latest metadata update.",
+                    reviewId, uniqueCandidates, selected);
+            }
+
+            return selected;
+        }
+
+        return copies.stream()
+            .map(ReviewItem::getRepositories)
+            .filter(repos -> repos != null && !repos.isEmpty())
+            .map(List::getFirst)
+            .findFirst()
+            .orElse(null);
     }
 
     private List<ReviewItem> rebuildSnapshot() {
