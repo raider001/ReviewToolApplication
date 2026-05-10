@@ -77,13 +77,22 @@ public class RepositoryManager {
         notifyListeners();
     }
 
-    public void updateBranchesForRepository(String repositoryName, List<String> branches) {
+    /**
+     * Updates branches for multiple repositories in a single operation, notifying listeners once.
+     *
+     * @param branchesByRepository map of repository name to branch list
+     */
+    public void updateBranchesForRepositories(Map<String, List<String>> branchesByRepository) {
+        boolean changed = false;
         for (Repository repo : repositories) {
-            if (repo.getName().equals(repositoryName)) {
+            List<String> branches = branchesByRepository.get(repo.getName());
+            if (branches != null) {
                 repo.setBranches(branches);
-                notifyListeners();
-                break;
+                changed = true;
             }
+        }
+        if (changed) {
+            notifyListeners();
         }
     }
 
