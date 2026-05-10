@@ -28,7 +28,19 @@
         </dependency>
         <dependency>
             <groupId>com.serverless</groupId>
-            <artifactId>review-tool-default-plugins</artifactId>
+            <artifactId>review-tool-default-notification-plugin</artifactId>
+            <version>${project.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>com.serverless</groupId>
+            <artifactId>review-tool-default-user-plugin</artifactId>
+            <version>${project.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>com.serverless</groupId>
+            <artifactId>review-tool-default-syntax-highlighter-plugin</artifactId>
             <version>${project.version}</version>
             <optional>true</optional>
         </dependency>
@@ -72,7 +84,7 @@
                         </goals>
                         <configuration>
                             <outputDirectory>../plugins</outputDirectory>
-                            <includeArtifactIds>review-tool-default-plugins</includeArtifactIds>
+                            <includeArtifactIds>review-tool-default-notification-plugin,review-tool-default-user-plugin,review-tool-default-syntax-highlighter-plugin</includeArtifactIds>
                             <excludeTransitive>true</excludeTransitive>
                             <overWriteReleases>true</overWriteReleases>
                             <overWriteSnapshots>true</overWriteSnapshots>

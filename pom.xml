@@ -20,7 +20,9 @@
 
     <modules>
         <module>ReviewToolPluginInterface</module>
-        <module>ReviewToolDefaultPlugins</module>
+        <module>ReviewToolDefaultNotificationPlugin</module>
+        <module>ReviewToolDefaultUserPlugin</module>
+        <module>ReviewToolDefaultSyntaxHighlighterPlugin</module>
         <module>ReviewToolApplication</module>
     </modules>
 

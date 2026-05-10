@@ -1,0 +1,9 @@
+[submodule "ReviewToolDefaultSyntaxHighlighterPlugin"]
+	path = ReviewToolDefaultSyntaxHighlighterPlugin
+	url = C:\\Users\\panda\\PycharmProjects\\ServerlessReviewTool\\ReviewToolDefaultSyntaxHighlighterPlugin
+[submodule "ReviewToolDefaultNotificationPlugin"]
+	path = ReviewToolDefaultNotificationPlugin
+	url = C:\\Users\\panda\\PycharmProjects\\ServerlessReviewTool\\ReviewToolDefaultNotificationPlugin
+[submodule "ReviewToolDefaultUserPlugin"]
+	path = ReviewToolDefaultUserPlugin
+	url = C:\\Users\\panda\\PycharmProjects\\ServerlessReviewTool\\ReviewToolDefaultUserPlugin
