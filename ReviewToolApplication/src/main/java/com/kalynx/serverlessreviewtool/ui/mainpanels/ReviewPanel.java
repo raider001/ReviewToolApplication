@@ -254,12 +254,13 @@ public class ReviewPanel extends ThemedPanel {
     }
 
     public void loadReview(ReviewItem reviewItem) {
-        loadReviewInternal(reviewItem, null, false, null);
+        loadReviewInternal(reviewItem, null, false, true, null);
     }
 
     private CompletableFuture<Void> loadReviewInternal(ReviewItem reviewItem,
                                                        ViewportRestoreState viewportRestoreState,
                                                        boolean preserveModelState,
+                                                       boolean showLoadingIndicator,
                                                        String postLoadNotificationMessage) {
         if (!preserveModelState) {
             this.model.clear();
@@ -272,8 +273,12 @@ public class ReviewPanel extends ThemedPanel {
         String reviewId = reviewItem.getReviewId();
         List<String> repositoryNames = reviewItem.getRepositories();
 
-        model.setCurrentReview(reviewId);
-        LoadingStateManager.getInstance().startLoading("Loading review context...");
+        if (!preserveModelState || !reviewId.equals(model.currentReviewId.getValue())) {
+            model.setCurrentReview(reviewId);
+        }
+        if (showLoadingIndicator) {
+            LoadingStateManager.getInstance().startLoading("Loading review context...");
+        }
 
         long overallStart = System.nanoTime();
         LOGGER.info("TIMING [{}] === REVIEW LOAD START ===", reviewId);
@@ -448,7 +453,11 @@ public class ReviewPanel extends ThemedPanel {
                             });
                     });
             })
-            .whenComplete((ignored, _) -> LoadingStateManager.getInstance().stopLoading("Loading review context..."))
+            .whenComplete((ignored, _) -> {
+                if (showLoadingIndicator) {
+                    LoadingStateManager.getInstance().stopLoading("Loading review context...");
+                }
+            })
             .exceptionally(error -> {
                 LOGGER.info("TIMING [{}] === REVIEW LOAD FAILED: {}ms ===", reviewId, elapsedMs(overallStart));
                 model.setError("Failed to load review: " + error.getMessage());
@@ -532,7 +541,7 @@ public class ReviewPanel extends ThemedPanel {
                 context.getBaseBranch()
             );
 
-            loadReviewInternal(reviewItem, restoreState, true, "Review updated with new changes")
+            loadReviewInternal(reviewItem, restoreState, true, false, "Review updated with new changes")
                 .whenComplete((_, __) -> completeAutoRefreshCycle());
         });
     }
@@ -555,10 +564,17 @@ public class ReviewPanel extends ThemedPanel {
         }
 
         if (state.repositoryName() != null && state.filePath() != null) {
-            files.stream()
-                .filter(file -> state.repositoryName().equals(file.getRepository()) && state.filePath().equals(file.getPath()))
-                .findFirst()
-                .ifPresent(model.codeViewerModel::selectFile);
+            ReviewFile currentlySelected = model.codeViewerModel.selectedFile.getValue();
+            boolean alreadySelected = currentlySelected != null
+                && state.repositoryName().equals(currentlySelected.getRepository())
+                && state.filePath().equals(currentlySelected.getPath());
+
+            if (!alreadySelected) {
+                files.stream()
+                    .filter(file -> state.repositoryName().equals(file.getRepository()) && state.filePath().equals(file.getPath()))
+                    .findFirst()
+                    .ifPresent(model.codeViewerModel::selectFile);
+            }
         }
 
         if (state.topVisibleLine() > 0) {
