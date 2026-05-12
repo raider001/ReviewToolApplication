@@ -19,6 +19,11 @@
       "name": "serverless-code-review-tool",
       "location": "https://github.com/raider001/serverless-code-review-tool.git",
       "poll_rate": 60000
+    },
+    {
+      "name": "ReviewToolApplication",
+      "location": "file://${user.home}/PycharmProjects/ServerlessReviewTool",
+      "poll_rate": 60000
     }
   ]
 }

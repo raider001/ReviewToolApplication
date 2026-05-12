@@ -154,8 +154,11 @@ public class ReviewItemLoader {
         if (primaryRepositoryValue == null || primaryRepositoryValue.isBlank()) {
             return repositoryName;
         }
-        if ("true".equalsIgnoreCase(primaryRepositoryValue) || "false".equalsIgnoreCase(primaryRepositoryValue)) {
+        if ("true".equalsIgnoreCase(primaryRepositoryValue)) {
             return repositoryName;
+        }
+        if ("false".equalsIgnoreCase(primaryRepositoryValue)) {
+            return null;
         }
         return primaryRepositoryValue;
     }

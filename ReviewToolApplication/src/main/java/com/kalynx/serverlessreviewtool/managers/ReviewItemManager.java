@@ -57,7 +57,12 @@ public class ReviewItemManager {
     public CompletableFuture<Void> refresh() {
         LoadingStateManager.getInstance().startLoading("refresh-review-items");
         List<CompletableFuture<Void>> futures = resolveRepositoryNames().stream()
-            .map(this::refreshRepository)
+            .map(repositoryName -> refreshRepository(repositoryName)
+                .exceptionally(error -> {
+                    LOGGER.warn("Skipping repository '{}' during refresh due to error: {}",
+                        repositoryName, error.getMessage());
+                    return null;
+                }))
             .toList();
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
@@ -168,7 +173,12 @@ public class ReviewItemManager {
         }
 
         List<CompletableFuture<Void>> futures = affectedRepositories.stream()
-            .map(this::refreshRepository)
+            .map(repositoryName -> refreshRepository(repositoryName)
+                .exceptionally(error -> {
+                    LOGGER.warn("Skipping repository '{}' during notification refresh due to error: {}",
+                        repositoryName, error.getMessage());
+                    return null;
+                }))
             .toList();
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
     }
