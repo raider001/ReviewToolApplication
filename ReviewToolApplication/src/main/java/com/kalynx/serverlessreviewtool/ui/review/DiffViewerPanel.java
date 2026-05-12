@@ -5,6 +5,7 @@ import java.io.Serial;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.models.*;
 import com.kalynx.serverlessreviewtool.plugin.SyntaxHighlighterPlugin;
+import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.AnnotatedScrollPane;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.LineNumberedTextPane;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedScrollPane;
@@ -18,7 +19,10 @@ import org.slf4j.LoggerFactory;
 import javax.swing.*;
 import javax.swing.text.*;
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * DiffViewerPanel - Shows file diffs in side-by-side or unified mode
@@ -39,6 +43,11 @@ public class DiffViewerPanel extends ThemedPanel {
     private LineNumberedTextPane rightPane;
     private LineNumberedTextPane unifiedPane;
 
+    private AnnotatedScrollPane leftScrollPane;
+    private AnnotatedScrollPane rightScrollPane;
+    private AnnotatedScrollPane unifiedScrollPane;
+
+    private transient List<ReviewComment> currentComments = List.of();
     private transient ReviewFile currentFile;
     private transient Commit startCommit;
     private transient Commit endCommit;
@@ -149,23 +158,17 @@ public class DiffViewerPanel extends ThemedPanel {
     }
 
     private void createSideBySideView() {
-        // Create line numbered panes for both sides
         leftPane = new LineNumberedTextPane();
         rightPane = new LineNumberedTextPane();
 
-        // Wrap in scroll panes
-        ThemedScrollPane leftScrollPane = new ThemedScrollPane(leftPane);
-        leftScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+        leftScrollPane = new AnnotatedScrollPane(leftPane);
         leftScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
-        ThemedScrollPane rightScrollPane = new ThemedScrollPane(rightPane);
-        rightScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+        rightScrollPane = new AnnotatedScrollPane(rightPane);
         rightScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
-        // Synchronize scrolling between left and right panes
         synchronizeScrollPanes(leftScrollPane, rightScrollPane);
 
-        // Create split pane with the two scrolled line-numbered panes
         ThemedSplitPane splitPane = new ThemedSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftScrollPane, rightScrollPane);
         splitPane.setResizeWeight(0.5);
 
@@ -175,9 +178,7 @@ public class DiffViewerPanel extends ThemedPanel {
     private void createUnifiedView() {
         unifiedPane = new LineNumberedTextPane();
 
-        // Wrap in scroll pane
-        ThemedScrollPane unifiedScrollPane = new ThemedScrollPane(unifiedPane);
-        unifiedScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+        unifiedScrollPane = new AnnotatedScrollPane(unifiedPane);
         unifiedScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
         contentPanel.add(unifiedScrollPane, DiffViewMode.UNIFIED.name());
@@ -441,6 +442,28 @@ public class DiffViewerPanel extends ThemedPanel {
 
         applySyntaxHighlighting(leftTextPane, aligned.leftContent);
         applySyntaxHighlighting(rightTextPane, aligned.rightContent);
+
+        pushSideBySideAnnotations(aligned);
+    }
+
+    private void pushSideBySideAnnotations(AlignedContent aligned) {
+        int totalLines = aligned.leftContent.split("\n", -1).length;
+        Set<Integer> leftRemoved = toOneBased(aligned.rightEmptyLines);
+        Set<Integer> rightAdded = toOneBased(aligned.leftEmptyLines);
+        Set<Integer> modified = toOneBased(aligned.modifiedLines);
+
+        if (leftScrollPane != null) {
+            leftScrollPane.setChangeAnnotations(totalLines, Set.of(), leftRemoved, modified);
+            leftScrollPane.setCommentAnnotations(currentComments);
+        }
+        if (rightScrollPane != null) {
+            rightScrollPane.setChangeAnnotations(totalLines, rightAdded, Set.of(), modified);
+            rightScrollPane.setCommentAnnotations(currentComments);
+        }
+    }
+
+    private Set<Integer> toOneBased(Set<Integer> zeroBased) {
+        return zeroBased.stream().map(i -> i + 1).collect(Collectors.toSet());
     }
 
     private AlignedContent alignContentUsingDiff(String beforeContent, String afterContent, String unifiedDiff) {
@@ -704,6 +727,16 @@ public class DiffViewerPanel extends ThemedPanel {
         }
 
         applySyntaxHighlighting(textPane, cleaned.content);
+
+        pushUnifiedAnnotations(cleaned);
+    }
+
+    private void pushUnifiedAnnotations(CleanedDiff cleaned) {
+        if (unifiedScrollPane == null) return;
+        int totalLines = cleaned.content.split("\n", -1).length;
+        unifiedScrollPane.setChangeAnnotations(totalLines, toOneBased(cleaned.addedLines),
+            toOneBased(cleaned.removedLines), Set.of());
+        unifiedScrollPane.setCommentAnnotations(currentComments);
     }
 
     private CleanedDiff cleanUnifiedDiff(String unifiedDiff) {
@@ -782,6 +815,10 @@ public class DiffViewerPanel extends ThemedPanel {
         leftPane.setText("");
         rightPane.setText("");
         unifiedPane.setText("");
+        currentComments = List.of();
+        if (leftScrollPane != null) leftScrollPane.clearAnnotations();
+        if (rightScrollPane != null) rightScrollPane.clearAnnotations();
+        if (unifiedScrollPane != null) unifiedScrollPane.clearAnnotations();
         currentFile = null;
     }
 
@@ -864,9 +901,13 @@ public class DiffViewerPanel extends ThemedPanel {
     }
 
     public void setCommentsForCurrentFile(java.util.List<ReviewComment> comments) {
+        currentComments = new ArrayList<>(comments);
         leftPane.setComments(comments);
         rightPane.setComments(comments);
         unifiedPane.setComments(comments);
+        if (leftScrollPane != null) leftScrollPane.setCommentAnnotations(currentComments);
+        if (rightScrollPane != null) rightScrollPane.setCommentAnnotations(currentComments);
+        if (unifiedScrollPane != null) unifiedScrollPane.setCommentAnnotations(currentComments);
     }
 
     /**
