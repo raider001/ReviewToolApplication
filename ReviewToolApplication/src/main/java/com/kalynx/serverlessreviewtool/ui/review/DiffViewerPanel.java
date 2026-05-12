@@ -43,6 +43,7 @@ public class DiffViewerPanel extends ThemedPanel {
     private transient Commit startCommit;
     private transient Commit endCommit;
     private transient Theme lastRenderedTheme;
+    private volatile int pendingTopLineRestore = -1;
 
     public DiffViewerPanel(CodeViewerModel codeViewerModel, PluginManager pluginManager) {
         this.codeViewerModel = codeViewerModel;
@@ -102,6 +103,7 @@ public class DiffViewerPanel extends ThemedPanel {
             SwingUtilities.invokeLater(() -> {
                 if (currentMode == DiffViewMode.SIDE_BY_SIDE) {
                     highlightDiffWithInlineChanges(leftPane, rightPane, leftContent, rightContent);
+                    applyPendingTopLineRestore();
                 }
             });
         }
@@ -121,6 +123,7 @@ public class DiffViewerPanel extends ThemedPanel {
             SwingUtilities.invokeLater(() -> {
                 if (currentMode == DiffViewMode.SIDE_BY_SIDE) {
                     highlightDiffWithInlineChanges(leftPane, rightPane, leftContent, rightContent);
+                    applyPendingTopLineRestore();
                 }
             });
         }
@@ -138,6 +141,7 @@ public class DiffViewerPanel extends ThemedPanel {
             SwingUtilities.invokeLater(() -> {
                 if (currentMode == DiffViewMode.UNIFIED) {
                     highlightUnifiedDiff(unifiedPane, content);
+                    applyPendingTopLineRestore();
                 }
             });
         }
@@ -850,6 +854,83 @@ public class DiffViewerPanel extends ThemedPanel {
         leftPane.setComments(comments);
         rightPane.setComments(comments);
         unifiedPane.setComments(comments);
+    }
+
+    /**
+     * Returns the first visible line number in the active diff pane.
+     *
+     * @return 1-based line number, or -1 when unavailable
+     */
+    public int getTopVisibleLine() {
+        JTextPane pane = getActiveTextPane();
+        if (pane == null || pane.getDocument() == null || pane.getDocument().getLength() == 0) {
+            return -1;
+        }
+
+        JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, pane);
+        if (viewport == null) {
+            return -1;
+        }
+
+        Point viewPoint = viewport.getViewPosition();
+        int offset = pane.viewToModel2D(new Point(0, Math.max(0, viewPoint.y)));
+        if (offset < 0) {
+            return -1;
+        }
+
+        Element root = pane.getDocument().getDefaultRootElement();
+        return root.getElementIndex(offset) + 1;
+    }
+
+    /**
+     * Scrolls the active diff pane so the provided line is at the top of the viewport.
+     *
+     * @param lineNumber 1-based line number
+     */
+    public void scrollToTopLine(int lineNumber) {
+        if (lineNumber <= 0) {
+            return;
+        }
+
+        pendingTopLineRestore = lineNumber;
+        SwingUtilities.invokeLater(this::applyPendingTopLineRestore);
+    }
+
+    private JTextPane getActiveTextPane() {
+        if (currentMode == DiffViewMode.UNIFIED) {
+            return unifiedPane != null ? unifiedPane.getTextPane() : null;
+        }
+        return leftPane != null ? leftPane.getTextPane() : null;
+    }
+
+    private void applyPendingTopLineRestore() {
+        int targetLine = pendingTopLineRestore;
+        if (targetLine <= 0) {
+            return;
+        }
+
+        JTextPane pane = getActiveTextPane();
+        if (pane == null || pane.getDocument() == null || pane.getDocument().getLength() == 0) {
+            return;
+        }
+
+        Element root = pane.getDocument().getDefaultRootElement();
+        int maxLine = root.getElementCount();
+        int clampedLine = Math.min(targetLine, Math.max(maxLine, 1));
+        Element lineElement = root.getElement(clampedLine - 1);
+        if (lineElement == null) {
+            return;
+        }
+
+        try {
+            Rectangle lineRect = pane.modelToView2D(lineElement.getStartOffset()).getBounds();
+            JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, pane);
+            if (viewport != null) {
+                viewport.setViewPosition(new Point(0, Math.max(0, lineRect.y)));
+                pendingTopLineRestore = -1;
+            }
+        } catch (BadLocationException ignored) {
+        }
     }
 
     @Override

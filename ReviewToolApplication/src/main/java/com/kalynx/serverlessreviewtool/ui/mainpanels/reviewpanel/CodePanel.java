@@ -168,4 +168,22 @@ public class CodePanel extends ThemedPanel {
         LOGGER.debug("Comments enabled: {}", enabled);
     }
 
+    /**
+     * Returns the first visible line in the active diff viewer.
+     *
+     * @return 1-based line number, or -1 when unavailable
+     */
+    public int getTopVisibleLine() {
+        return diffViewerPanel.getTopVisibleLine();
+    }
+
+    /**
+     * Restores the diff viewer viewport so the requested line appears at the top.
+     *
+     * @param lineNumber 1-based line number to align at the top of the viewport
+     */
+    public void restoreTopVisibleLine(int lineNumber) {
+        diffViewerPanel.scrollToTopLine(lineNumber);
+    }
+
 }

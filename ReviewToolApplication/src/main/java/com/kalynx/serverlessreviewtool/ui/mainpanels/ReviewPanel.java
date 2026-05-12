@@ -6,6 +6,9 @@ import com.kalynx.serverlessreviewtool.managers.FileDiffManager;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
+import com.kalynx.serverlessreviewtool.plugin.NotificationPlugin;
+import com.kalynx.serverlessreviewtool.plugin.ReviewListUpdate;
+import com.kalynx.serverlessreviewtool.plugin.ReviewUpdateType;
 
 import com.kalynx.serverlessreviewtool.models.*;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
@@ -21,10 +24,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.SwingUtilities;
+import javax.swing.BorderFactory;
+import javax.swing.JWindow;
+import javax.swing.JLabel;
+import javax.swing.Timer;
+import java.awt.Color;
+import java.awt.IllegalComponentStateException;
+import java.awt.Point;
+import java.awt.Window;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -44,6 +56,7 @@ public class ReviewPanel extends ThemedPanel {
     private final ReviewPanelModel model;
     private final FileDiffManager fileDiffManager;
     private final Git git;
+    private final PluginManager pluginManager;
 
     private final ReviewDetailPanel reviewDetailPanel;
     private final CodePanel codePanel;
@@ -53,6 +66,9 @@ public class ReviewPanel extends ThemedPanel {
     private final List<Consumer<Boolean>> additionalReviewerStatusListeners = new ArrayList<>();
     private boolean isCurrentUserReviewer = false;
     private boolean isReviewTerminal = false;
+    private volatile boolean autoRefreshInProgress;
+    private volatile boolean autoRefreshPending;
+    private JWindow updateToastWindow;
 
     public ReviewPanel(SettingsManager settingsManager,
                        ReviewContextManager reviewContextManager,
@@ -67,6 +83,7 @@ public class ReviewPanel extends ThemedPanel {
         this.reviewFormModels = reviewFormModels;
         this.model = reviewPanelModel;
         this.git = git;
+        this.pluginManager = pluginManager;
         this.fileDiffManager = new FileDiffManager(git, reviewPanelModel.codeViewerModel);
         this.reviewDetailPanel = new ReviewDetailPanel(settingsManager, reviewPanelModel.reviewDetailModel);
         this.codePanel = new CodePanel(settingsManager, reviewContextManager, reviewPanelModel.codeViewerModel, fileDiffManager, git, pluginManager);
@@ -84,6 +101,11 @@ public class ReviewPanel extends ThemedPanel {
         reviewContextManager.addListener(this::onReviewContextChanged);
         settingsManager.addUserNameListener(model.commentsPanelModel::setCurrentUser);
         model.reviewDetailModel.status.addChangeListener(this::onReviewStatusChanged);
+
+        pluginManager.addListenerToNotificationPlugins(
+            NotificationPlugin.NotificationType.REVIEW_UPDATED,
+            this::onReviewUpdatesReceived
+        );
 
         configureLayout();
     }
@@ -232,10 +254,19 @@ public class ReviewPanel extends ThemedPanel {
     }
 
     public void loadReview(ReviewItem reviewItem) {
-        this.model.clear();
+        loadReviewInternal(reviewItem, null, false, null);
+    }
+
+    private CompletableFuture<Void> loadReviewInternal(ReviewItem reviewItem,
+                                                       ViewportRestoreState viewportRestoreState,
+                                                       boolean preserveModelState,
+                                                       String postLoadNotificationMessage) {
+        if (!preserveModelState) {
+            this.model.clear();
+        }
         if (reviewItem == null || reviewItem.getReviewId() == null || reviewItem.getReviewId().isEmpty()) {
             model.clear();
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
         String reviewId = reviewItem.getReviewId();
@@ -266,7 +297,7 @@ public class ReviewPanel extends ThemedPanel {
         final CompletableFuture<Void> upfrontFetchFuture = upfrontFetchFutureLocal;
 
         long metadataStart = System.nanoTime();
-        reviewContextManager.loadReviewMetadata(reviewId, repositoryNames, reviewItem.getPrimaryRepository())
+        return reviewContextManager.loadReviewMetadata(reviewId, repositoryNames, reviewItem.getPrimaryRepository())
             .thenCompose(reviewContext -> {
                 LOGGER.info("TIMING [{}] loadReviewMetadata: {}ms", reviewId, elapsedMs(metadataStart));
 
@@ -404,6 +435,14 @@ public class ReviewPanel extends ThemedPanel {
 
                                 model.codeViewerModel.setAvailableFiles(allFiles);
 
+                                if (viewportRestoreState != null) {
+                                    restoreViewportState(allFiles, viewportRestoreState);
+                                }
+
+                                if (postLoadNotificationMessage != null && !postLoadNotificationMessage.isBlank()) {
+                                    showUpdateToast(postLoadNotificationMessage);
+                                }
+
                                 LOGGER.info("TIMING [{}] === REVIEW LOAD COMPLETE: {}ms total ===",
                                     reviewId, elapsedMs(overallStart));
                             });
@@ -416,6 +455,189 @@ public class ReviewPanel extends ThemedPanel {
                 return null;
             });
     }
+
+    private void onReviewUpdatesReceived(ReviewListUpdate[] updates) {
+        if (updates == null || updates.length == 0) {
+            return;
+        }
+        if (currentReviewContext == null || currentReviewContext.getReviewId() == null || currentReviewContext.getReviewId().isBlank()) {
+            return;
+        }
+
+        String activeReviewId = currentReviewContext.getReviewId();
+        Set<String> activeRepositories = currentReviewContext.getRepositories().stream()
+            .map(Repository::getName)
+            .collect(java.util.stream.Collectors.toSet());
+
+        boolean hasRelevantUpdate = java.util.Arrays.stream(updates)
+            .filter(java.util.Objects::nonNull)
+            .filter(update -> update.updateType() == ReviewUpdateType.UPDATED)
+            .anyMatch(update -> isRelevantToCurrentReview(update, activeReviewId, activeRepositories));
+
+        if (!hasRelevantUpdate) {
+            return;
+        }
+
+        triggerAutoRefreshForOpenReview();
+    }
+
+    private boolean isRelevantToCurrentReview(ReviewListUpdate update,
+                                              String activeReviewId,
+                                              Set<String> activeRepositories) {
+        if (activeReviewId.equals(update.reviewId())) {
+            return true;
+        }
+        if (update.primaryRepository() != null && activeRepositories.contains(update.primaryRepository())) {
+            return true;
+        }
+        if (update.repositories() == null || update.repositories().isEmpty()) {
+            return false;
+        }
+        return update.repositories().stream().anyMatch(activeRepositories::contains);
+    }
+
+    private void triggerAutoRefreshForOpenReview() {
+        synchronized (this) {
+            if (autoRefreshInProgress) {
+                autoRefreshPending = true;
+                return;
+            }
+            autoRefreshInProgress = true;
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            ReviewContext context = currentReviewContext;
+            if (context == null || context.getReviewId() == null || context.getReviewId().isBlank()) {
+                completeAutoRefreshCycle();
+                return;
+            }
+
+            ReviewFile selectedFile = model.codeViewerModel.selectedFile.getValue();
+            ViewportRestoreState restoreState = new ViewportRestoreState(
+                selectedFile != null ? selectedFile.getRepository() : null,
+                selectedFile != null ? selectedFile.getPath() : null,
+                codePanel.getTopVisibleLine()
+            );
+
+            ReviewItem reviewItem = new ReviewItem(
+                context.getReviewId(),
+                context.getTitle(),
+                context.getAuthor(),
+                context.getRepositories().isEmpty() ? null : context.getRepositories().getFirst().getName(),
+                context.getRepositories().stream().map(Repository::getName).toList(),
+                context.status,
+                System.currentTimeMillis(),
+                context.getReviewers().stream().map(ReviewerInfo::getName).toList(),
+                context.getBranch(),
+                context.getBaseBranch()
+            );
+
+            loadReviewInternal(reviewItem, restoreState, true, "Review updated with new changes")
+                .whenComplete((_, __) -> completeAutoRefreshCycle());
+        });
+    }
+
+    private void completeAutoRefreshCycle() {
+        boolean shouldRunAgain;
+        synchronized (this) {
+            shouldRunAgain = autoRefreshPending;
+            autoRefreshPending = false;
+            autoRefreshInProgress = false;
+        }
+        if (shouldRunAgain) {
+            triggerAutoRefreshForOpenReview();
+        }
+    }
+
+    private void restoreViewportState(List<ReviewFile> files, ViewportRestoreState state) {
+        if (state == null || files == null || files.isEmpty()) {
+            return;
+        }
+
+        if (state.repositoryName() != null && state.filePath() != null) {
+            files.stream()
+                .filter(file -> state.repositoryName().equals(file.getRepository()) && state.filePath().equals(file.getPath()))
+                .findFirst()
+                .ifPresent(model.codeViewerModel::selectFile);
+        }
+
+        if (state.topVisibleLine() > 0) {
+            codePanel.restoreTopVisibleLine(state.topVisibleLine());
+        }
+    }
+
+    private void showUpdateToast(String message) {
+        SwingUtilities.invokeLater(() -> {
+            Window owner = SwingUtilities.getWindowAncestor(this);
+            if (owner == null || !owner.isDisplayable()) {
+                return;
+            }
+
+            if (updateToastWindow != null) {
+                updateToastWindow.dispose();
+            }
+
+            JWindow toast = new JWindow(owner);
+            JLabel label = new JLabel(message);
+            label.setForeground(Color.WHITE);
+
+            javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.BorderLayout());
+            panel.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+            panel.setBackground(new Color(32, 32, 32, 230));
+            panel.add(label, java.awt.BorderLayout.CENTER);
+
+            toast.setBackground(new Color(0, 0, 0, 0));
+            toast.setContentPane(panel);
+            toast.pack();
+
+            Point panelPoint;
+            try {
+                panelPoint = getLocationOnScreen();
+            } catch (IllegalComponentStateException e) {
+                panelPoint = owner.getLocationOnScreen();
+            }
+            toast.setLocation(panelPoint.x + 16, panelPoint.y + 16);
+            toast.setAlwaysOnTop(false);
+            toast.setVisible(true);
+            setWindowOpacity(toast, 0.95f);
+
+            int totalDurationMs = 5000;
+            int fadeDurationMs = 1000;
+            int fadeStartMs = totalDurationMs - fadeDurationMs;
+            long startedAt = System.currentTimeMillis();
+
+            Timer timer = new Timer(50, event -> {
+                long elapsed = System.currentTimeMillis() - startedAt;
+                if (elapsed >= totalDurationMs) {
+                    ((Timer) event.getSource()).stop();
+                    toast.dispose();
+                    if (updateToastWindow == toast) {
+                        updateToastWindow = null;
+                    }
+                    return;
+                }
+
+                if (elapsed >= fadeStartMs) {
+                    float fadeProgress = (elapsed - fadeStartMs) / (float) fadeDurationMs;
+                    float opacity = Math.max(0.0f, 0.95f * (1.0f - fadeProgress));
+                    setWindowOpacity(toast, opacity);
+                }
+            });
+            timer.setRepeats(true);
+            timer.start();
+
+            updateToastWindow = toast;
+        });
+    }
+
+    private void setWindowOpacity(Window window, float opacity) {
+        try {
+            window.setOpacity(Math.max(0.0f, Math.min(1.0f, opacity)));
+        } catch (UnsupportedOperationException ignored) {
+        }
+    }
+
+    private record ViewportRestoreState(String repositoryName, String filePath, int topVisibleLine) {}
 
     private static long elapsedMs(long startNano) {
         return (System.nanoTime() - startNano) / 1_000_000;
