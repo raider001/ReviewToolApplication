@@ -132,7 +132,7 @@ public class ReviewPanel extends ThemedPanel {
 
         LoadingStateManager.getInstance().startLoading(loadingMessage);
         reviewContextManager.updateReviewerStatus(currentReviewContext.reviewId, currentUser, status, repositoryNames)
-            .thenCompose(ignored -> reviewContextManager.loadReviewMetadataOnly(currentReviewContext.reviewId, repositoryNames))
+            .thenCompose(ignored -> reviewContextManager.loadReviewMetadataOnly(currentReviewContext.reviewId, repositoryNames, currentReviewContext.repositories.getFirst().getName()))
             .thenCompose(updatedContext -> {
                 if (updatedContext == null) {
                     return CompletableFuture.completedFuture(null);
@@ -155,7 +155,7 @@ public class ReviewPanel extends ThemedPanel {
                         updatedContext.hasClosedHistory()
                     );
                     return reviewContextManager.saveReviewMetadata(synced)
-                        .thenCompose(ignored2 -> reviewContextManager.loadReviewMetadataOnly(updatedContext.reviewId, repositoryNames));
+                        .thenCompose(ignored2 -> reviewContextManager.loadReviewMetadataOnly(updatedContext.reviewId, repositoryNames, updatedContext.repositories.getFirst().getName()));
                 }
                 return CompletableFuture.completedFuture(updatedContext);
             })
@@ -266,7 +266,7 @@ public class ReviewPanel extends ThemedPanel {
         final CompletableFuture<Void> upfrontFetchFuture = upfrontFetchFutureLocal;
 
         long metadataStart = System.nanoTime();
-        reviewContextManager.loadReviewMetadata(reviewId, repositoryNames)
+        reviewContextManager.loadReviewMetadata(reviewId, repositoryNames, reviewItem.getPrimaryRepository())
             .thenCompose(reviewContext -> {
                 LOGGER.info("TIMING [{}] loadReviewMetadata: {}ms", reviewId, elapsedMs(metadataStart));
 
@@ -443,7 +443,8 @@ public class ReviewPanel extends ThemedPanel {
             reviewContextManager.loadReviewMetadata(currentReviewContext.reviewId,
                 currentReviewContext.repositories.stream()
                     .map(Repository::getName)
-                    .toList())
+                    .toList(),
+                currentReviewContext.repositories.getFirst().getName())
                 .thenAccept(updatedContext -> {
                     if (updatedContext != null) {
                         currentReviewContext = updatedContext;
@@ -487,7 +488,8 @@ public class ReviewPanel extends ThemedPanel {
                 reviewContextManager.loadReviewMetadata(currentReviewContext.reviewId,
                     currentReviewContext.repositories.stream()
                         .map(Repository::getName)
-                        .toList())
+                        .toList(),
+                    currentReviewContext.repositories.getFirst().getName())
                     .thenAccept(updatedContext -> {
                         LoadingStateManager.getInstance().stopLoading("Joining review...");
                         if (updatedContext != null) {
@@ -536,7 +538,8 @@ public class ReviewPanel extends ThemedPanel {
                 reviewContextManager.loadReviewMetadata(currentReviewContext.reviewId,
                     currentReviewContext.repositories.stream()
                         .map(Repository::getName)
-                        .toList())
+                        .toList(),
+                    currentReviewContext.repositories.getFirst().getName())
                     .thenAccept(updatedContext -> {
                         LoadingStateManager.getInstance().stopLoading("Leaving review...");
                         if (updatedContext != null) {
@@ -628,7 +631,8 @@ public class ReviewPanel extends ThemedPanel {
             .thenCompose(ignored -> reviewContextManager.saveReviewMetadata(updatedContext))
             .thenCompose(ignored -> reviewContextManager.loadReviewMetadataOnly(
                 currentReviewContext.reviewId,
-                currentReviewContext.repositories.stream().map(Repository::getName).toList()
+                currentReviewContext.repositories.stream().map(Repository::getName).toList(),
+                currentReviewContext.repositories.getFirst().getName()
             ))
             .thenAccept(reloaded -> {
                 LoadingStateManager.getInstance().stopLoading(loadingMessage);

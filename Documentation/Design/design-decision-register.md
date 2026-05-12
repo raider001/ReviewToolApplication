@@ -204,4 +204,52 @@ The tool will support plugging in third-party services for user validation and b
 **ACTIVE** - Accepted limitation
 
 
+## External Indexer and Notification Plugin for Scale
+
+### Decision
+Keep Git notes as the authoritative review store, and introduce an external indexer/custom plugin service for large-scale discovery, query, and change notification workflows.
+
+### Why
+At higher review counts, full Git-note scanning and repeated metadata hydration become the primary bottleneck. The indexer solves this by:
+
+- maintaining a materialized review routing/summary index (`reviewId` to primary repository and summary metadata)
+- serving paged/filterable queries without repository-wide scans
+- emitting changed review IDs so clients refresh incrementally
+- reducing plugin-side work to targeted hydration of only relevant reviews
+
+This keeps the tool aligned with Git-first storage while moving scale-heavy query operations to a dedicated component.
+
+### Scope Boundary
+- **In-tool responsibility**:
+  - write and read authoritative review data in Git notes
+  - operate when the indexer is unavailable (fallback behavior)
+  - hydrate full review details for selected review IDs
+- **Indexer/plugin responsibility**:
+  - repository-wide indexing and summary query
+  - review ID routing lookup
+  - change-feed notifications to connected clients
+
+### Benefits
+- **Scalability**: Avoids `O(total reviews)` refresh paths in clients
+- **Responsiveness**: Enables near real-time incremental updates in UI lists
+- **Separation of Concerns**: Keeps source-of-truth storage decoupled from query acceleration
+- **Extensibility**: Allows alternative index implementations without changing review storage format
+
+### Trade-offs
+- **Operational Complexity**: Adds another deployable component
+- **Consistency Window**: Index may lag behind Git briefly (eventual consistency)
+- **Fallback Requirement**: Client must handle index downtime gracefully
+
+### Operational Rules
+- Indexer is an accelerator, not the source of truth
+- Git notes remain canonical for conflict resolution and recovery
+- Client must support direct-by-`reviewId` fallback reads from Git
+
+### Date Decided
+2026-05-11
+
+### Status
+**ACTIVE** - Required direction for 100k+ review scaling strategy
+
+
 

@@ -394,5 +394,3 @@ git log --notes=refs/notes/reviews/<REVIEW_ID>/metadata/title --show-notes
 
 
 
-
-
