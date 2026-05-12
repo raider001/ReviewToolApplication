@@ -1,5 +1,6 @@
 package com.kalynx.serverlessreviewtool.managers;
 
+import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.git.ReviewItemLoader;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.plugin.RepositoryDescriptor;
@@ -38,6 +39,7 @@ public class ReviewItemManager {
     private final Map<String, ReviewItem> mergedReviewIndex = new HashMap<>();
 
     private final Set<Consumer<List<ReviewItem>>> listeners = new HashSet<>();
+    private final Git git;
     private final ReviewItemLoader reviewItemLoader;
     private volatile List<RepositoryDescriptor> notificationPluginRepositories = List.of();
     private final Map<String, CompletableFuture<Void>> inFlightRepositoryRefreshes = new ConcurrentHashMap<>();
@@ -45,10 +47,13 @@ public class ReviewItemManager {
     /**
      * Creates a new review item manager.
      *
+     * @param git git client
      * @param reviewItemLoader review item loader
      */
     public ReviewItemManager(
+        Git git,
         ReviewItemLoader reviewItemLoader) {
+        this.git = git;
         this.reviewItemLoader = reviewItemLoader;
     }
 
@@ -132,16 +137,35 @@ public class ReviewItemManager {
                 return inFlight;
             }
 
+            RepositoryDescriptor descriptor = findRepositoryDescriptor(repositoryName);
+            if (descriptor == null || descriptor.location() == null || descriptor.location().isBlank()) {
+                LOGGER.warn("Repository descriptor not found for {}", repositoryName);
+                return CompletableFuture.completedFuture(null);
+            }
+
             Map<String, ReviewItem> refreshedRepositorySnapshot = new HashMap<>();
-            CompletableFuture<Void> refreshFuture = reviewItemLoader.loadReviewsFromRepositoryLazy(repositoryName, review -> {
-                refreshedRepositorySnapshot.put(review.getReviewId(), review);
-                upsertRepositoryReview(repositoryName, review);
-            }).thenRun(() -> replaceRepositorySnapshot(repositoryName, refreshedRepositorySnapshot));
+            CompletableFuture<Void> refreshFuture = git.ensureCloned(repositoryName, descriptor.location())
+                .thenCompose(ignored -> reviewItemLoader.loadReviewsFromRepositoryLazy(repositoryName, review -> {
+                    refreshedRepositorySnapshot.put(review.getReviewId(), review);
+                    upsertRepositoryReview(repositoryName, review);
+                }))
+                .thenRun(() -> replaceRepositorySnapshot(repositoryName, refreshedRepositorySnapshot))
+                .exceptionally(ex -> {
+                    LOGGER.warn("Failed to refresh repository {}", repositoryName, ex);
+                    return null;
+                });
 
             refreshFuture.whenComplete((ignored, _) ->
                 inFlightRepositoryRefreshes.remove(name, refreshFuture));
             return refreshFuture;
         });
+    }
+
+    private RepositoryDescriptor findRepositoryDescriptor(String repositoryName) {
+        return notificationPluginRepositories.stream()
+            .filter(desc -> repositoryName.equals(desc.name()))
+            .findFirst()
+            .orElse(null);
     }
 
     /**

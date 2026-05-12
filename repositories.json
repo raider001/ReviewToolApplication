@@ -22,7 +22,27 @@
     },
     {
       "name": "ReviewToolApplication",
-      "location": "file://${user.home}/PycharmProjects/ServerlessReviewTool",
+      "location": "https://github.com/raider001/ReviewToolApplication.git",
+      "poll_rate": 60000
+    },
+    {
+      "name": "ReviewToolDefaultNotificationPlugin",
+      "location": "https://github.com/raider001/ReviewToolDefaultNotificationPlugin.git",
+      "poll_rate": 60000
+    },
+    {
+      "name": "ReviewToolPluginInterface",
+      "location": "https://github.com/raider001/ReviewToolPluginInterface.git",
+      "poll_rate": 60000
+    },
+    {
+      "name": "ReviewToolDefaultUserPlugin",
+      "location": "https://github.com/raider001/ReviewToolDefaultUserPlugin.git",
+      "poll_rate": 60000
+    },
+    {
+      "name": "ReviewToolDefaultSyntaxHighlighterPlugin",
+      "location": "https://github.com/raider001/ReviewToolDefaultSyntaxHighlighterPlugin.git",
       "poll_rate": 60000
     }
   ]

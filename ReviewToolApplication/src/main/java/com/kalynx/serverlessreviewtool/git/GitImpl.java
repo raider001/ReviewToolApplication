@@ -438,10 +438,12 @@ public class GitImpl implements Git {
             url = url.substring(0, url.length() - 4);
         }
 
-        // Handle both forward slashes (URLs) and backslashes (Windows paths)
         url = url.replace("\\", "/");
-        int lastSlash = url.lastIndexOf('/');
+        while (url.endsWith("/")) {
+            url = url.substring(0, url.length() - 1);
+        }
 
+        int lastSlash = url.lastIndexOf('/');
         if (lastSlash >= 0) {
             return url.substring(lastSlash + 1);
         }
@@ -653,8 +655,14 @@ public class GitImpl implements Git {
 
     @Override
     public CompletableFuture<List<String>> listChangedFiles(String repository, String fromCommit, String toCommit) {
+        if (fromCommit == null || fromCommit.isBlank() || toCommit == null || toCommit.isBlank()) {
+            logger.warn("Cannot list changed files for repository {} with invalid refs: from='{}', to='{}'",
+                repository, fromCommit, toCommit);
+            return CompletableFuture.completedFuture(new ArrayList<>());
+        }
+
         Path repoPath = gitLocalPath.resolve(repository);
-        return executeAsync(repoPath, "git", "diff", "--name-status", fromCommit, toCommit)
+        return executeAsync(repoPath, "git", "diff", "--name-status", fromCommit + "..." + toCommit)
             .thenApply(output -> Arrays.stream(output.split("\n"))
                 .filter(line -> !line.trim().isEmpty())
                 .collect(Collectors.toList()));

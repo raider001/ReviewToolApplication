@@ -645,26 +645,47 @@ public class ReviewContextManager {
             .thenCompose(resolved -> {
                 LOGGER.debug("Loading files for review in repository '{}': {} -> {} (resolved: {} -> {})",
                     repositoryName, baseBranch, reviewBranch, resolved.baseRef(), resolved.reviewRef());
-                return git.listChangedFiles(repositoryName, resolved.baseRef(), resolved.reviewRef());
-            })
-            .thenApply(changedFilePaths -> {
-                LOGGER.debug("Git diff returned {} changed file paths for repository '{}'",
-                    changedFilePaths.size(), repositoryName);
 
-                List<ReviewFile> reviewFiles = changedFilePaths.stream()
-                    .map(filePath -> parseChangedFileLine(filePath, repositoryName, baseBranch, reviewBranch))
-                    .toList();
+                if (resolved.baseRef() == null || resolved.baseRef().isBlank() ||
+                    resolved.reviewRef() == null || resolved.reviewRef().isBlank()) {
+                    LOGGER.warn("After resolution, refs are invalid: baseRef='{}', reviewRef='{}'",
+                        resolved.baseRef(), resolved.reviewRef());
+                    return CompletableFuture.completedFuture(new ArrayList<ReviewFile>());
+                }
 
-                LOGGER.debug("Loaded {} files for review in repository '{}'",
-                    reviewFiles.size(), repositoryName);
+                boolean reviewRefResolved = !resolved.reviewRef().equals(reviewBranch);
+                if (!reviewRefResolved) {
+                    return refExistsInRepository(repositoryName, resolved.reviewRef())
+                        .thenCompose(exists -> {
+                            if (!exists) {
+                                LOGGER.debug("Review branch '{}' does not exist in repository '{}', skipping file diff",
+                                    reviewBranch, repositoryName);
+                                return CompletableFuture.completedFuture(new ArrayList<ReviewFile>());
+                            }
+                            return git.listChangedFiles(repositoryName, resolved.baseRef(), resolved.reviewRef())
+                                .thenApply(paths -> toReviewFiles(paths, repositoryName, baseBranch, reviewBranch));
+                        });
+                }
 
-                return reviewFiles;
+                return git.listChangedFiles(repositoryName, resolved.baseRef(), resolved.reviewRef())
+                    .thenApply(paths -> toReviewFiles(paths, repositoryName, baseBranch, reviewBranch));
             })
             .exceptionally(error -> {
-                LOGGER.error("Failed to load files for review in repository '{}': {}",
-                    repositoryName, error.getMessage(), error);
+                LOGGER.warn("Failed to load files for review in repository '{}': {}",
+                    repositoryName, error.getMessage());
                 return new ArrayList<>();
             });
+    }
+
+    private List<ReviewFile> toReviewFiles(List<String> changedFilePaths, String repositoryName,
+                                           String baseBranch, String reviewBranch) {
+        LOGGER.debug("Git diff returned {} changed file paths for repository '{}'",
+            changedFilePaths.size(), repositoryName);
+        List<ReviewFile> reviewFiles = changedFilePaths.stream()
+            .map(filePath -> parseChangedFileLine(filePath, repositoryName, baseBranch, reviewBranch))
+            .toList();
+        LOGGER.debug("Loaded {} files for review in repository '{}'", reviewFiles.size(), repositoryName);
+        return reviewFiles;
     }
 
     private ReviewFile parseChangedFileLine(String line, String repositoryName,
@@ -975,9 +996,6 @@ public class ReviewContextManager {
 
     private CompletableFuture<String> resolveReviewRefForRepository(String repositoryName, String reviewRef) {
         List<String> reviewCandidates = candidateRefs(reviewRef);
-        if (!reviewCandidates.contains("HEAD")) {
-            reviewCandidates.add("HEAD");
-        }
         return resolveFirstExistingRef(repositoryName, reviewCandidates, reviewRef, "review");
     }
 
