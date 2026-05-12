@@ -43,6 +43,8 @@ public class FileNavigationPanel extends ThemedPanel {
     private DefaultTreeModel treeModel;
     private DefaultMutableTreeNode rootNode;
     private transient ReviewContext currentReviewContext;
+    private transient final java.util.Set<String> readFiles = new java.util.HashSet<>();
+    private transient final java.util.Map<String, String> fileSignatures = new java.util.HashMap<>();
 
     public FileNavigationPanel(ReviewContextManager reviewContextManager, CodeViewerModel codeViewerModel) {
         this.reviewContextManager = reviewContextManager;
@@ -81,6 +83,15 @@ public class FileNavigationPanel extends ThemedPanel {
 
     private void setupModelListeners() {
         codeViewerModel.availableFiles.addChangeListener(this::onFilesChanged);
+        codeViewerModel.selectedFile.addChangeListener(this::onSelectedFileChanged);
+    }
+
+    private void onSelectedFileChanged(ReviewFile file) {
+        if (file == null) {
+            return;
+        }
+        readFiles.add(fileKey(file));
+        fileTree.repaint();
     }
 
     private void onFilesChanged(List<ReviewFile> files) {
@@ -89,6 +100,7 @@ public class FileNavigationPanel extends ThemedPanel {
         SwingUtilities.invokeLater(() -> {
             try {
                 if (files != null && !files.isEmpty()) {
+                    updateReadTracking(files);
                     ReviewFile currentSelection = codeViewerModel.selectedFile.getValue();
                     buildFileTreeFromModel(files);
 
@@ -106,6 +118,8 @@ public class FileNavigationPanel extends ThemedPanel {
                         }
                     }
                 } else {
+                    readFiles.clear();
+                    fileSignatures.clear();
                     rootNode.removeAllChildren();
                     treeModel.reload();
                     fileTree.clearSelection();
@@ -303,6 +317,8 @@ public class FileNavigationPanel extends ThemedPanel {
                 }
                 case ReviewFile file -> {
                     setText(file.getFileName());
+                    boolean isRead = readFiles.contains(fileKey(file));
+                    setFont(getFont().deriveFont(isRead ? Font.PLAIN : Font.BOLD));
 
                     // Check for comments on this file
                     Icon fileIcon = new FileIcon(iconSize);
@@ -348,6 +364,7 @@ public class FileNavigationPanel extends ThemedPanel {
                 }
                 case String _ -> {
                     setText(value.toString());
+                    setFont(getFont().deriveFont(Font.PLAIN));
                     setIcon(new FolderIcon(iconSize));
                 }
                 case null, default -> setText(value.toString());
@@ -392,15 +409,44 @@ public class FileNavigationPanel extends ThemedPanel {
         void onFileSelected(ReviewFile file);
     }
 
-    public void addFileSelectionListener(FileSelectionListener listener) {
-        listeners.add(listener);
-    }
-
     private void fireFileSelected(ReviewFile file) {
+        readFiles.add(fileKey(file));
         codeViewerModel.selectFile(file);
         for (FileSelectionListener listener : listeners) {
             listener.onFileSelected(file);
         }
+        fileTree.repaint();
+    }
+
+    private void updateReadTracking(List<ReviewFile> files) {
+        java.util.Map<String, String> newSignatures = new java.util.HashMap<>();
+        for (ReviewFile file : files) {
+            String key = fileKey(file);
+            String signature = fileSignature(file);
+            newSignatures.put(key, signature);
+            String previousSignature = fileSignatures.get(key);
+            if (previousSignature != null && !previousSignature.equals(signature)) {
+                readFiles.remove(key);
+            }
+        }
+
+        java.util.Set<String> removedKeys = new java.util.HashSet<>(fileSignatures.keySet());
+        removedKeys.removeAll(newSignatures.keySet());
+        removedKeys.forEach(readFiles::remove);
+
+        fileSignatures.clear();
+        fileSignatures.putAll(newSignatures);
+    }
+
+    private String fileKey(ReviewFile file) {
+        return file.getRepository() + "|" + file.getPath();
+    }
+
+    private String fileSignature(ReviewFile file) {
+        String changeType = file.getChangeType() != null ? file.getChangeType().name() : "";
+        String baseBranch = file.getBaseBranch() != null ? file.getBaseBranch() : "";
+        String reviewBranch = file.getReviewBranch() != null ? file.getReviewBranch() : "";
+        return changeType + "|" + baseBranch + "|" + reviewBranch;
     }
 }
 

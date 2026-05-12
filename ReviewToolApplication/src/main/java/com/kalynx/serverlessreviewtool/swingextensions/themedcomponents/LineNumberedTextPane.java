@@ -179,6 +179,7 @@ public class LineNumberedTextPane extends ThemedPanel {
      */
     public void setText(String text) {
         textPane.setText(text);
+        textPane.setCaretPosition(0);
         clearLineIndicators();
     }
 
