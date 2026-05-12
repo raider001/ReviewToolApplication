@@ -25,6 +25,18 @@ public interface Git {
     CompletableFuture<Void> cloneRepository(String remoteUrl);
 
     /**
+     * Ensures a repository is cloned locally, cloning it first if it does not exist.
+     *
+     * <p>If the local repository directory already exists this is a no-op.
+     * If it does not exist, {@link #cloneRepository(String)} is called with the provided URL.
+     *
+     * @param repoName  local repository directory name
+     * @param remoteUrl remote URL to clone from if not already present
+     * @return future that completes when the repository is guaranteed to be present locally
+     */
+    CompletableFuture<Void> ensureCloned(String repoName, String remoteUrl);
+
+    /**
      * Removes a local repository directory.
      *
      * @param repository local repository path to delete
@@ -58,10 +70,31 @@ public interface Git {
     /**
      * List all branches in the repository.
      *
+     * <p><b>Performance Note:</b> This method queries a locally cloned repository.
+     * For UI operations that only need branch metadata, consider using
+     * {@link #listBranchesRemote(String)} instead to avoid sync issues with locally cached branches.</p>
+     *
      * @param repository local repository name
      * @return future containing list of branch names
      */
     CompletableFuture<List<String>> listBranches(String repository);
+
+    /**
+     * List all branches in a remote repository without cloning.
+     * Uses git ls-remote to fetch remote refs.
+     *
+     * <p><b>Design Rationale:</b> This method is preferred for UI operations because:
+     * <ul>
+     *   <li><b>Always in sync:</b> Always reflects current remote state (~600ms)</li>
+     *   <li><b>No storage:</b> Doesn't require local cloning or storage</li>
+     *   <li><b>No maintenance:</b> No sync issues if local repo isn't fetched regularly</li>
+     * </ul>
+     * Local cloning is only necessary for operations requiring full git history or file analysis.</p>
+     *
+     * @param remoteUrl remote repository URL
+     * @return future containing list of branch names
+     */
+    CompletableFuture<List<String>> listBranchesRemote(String remoteUrl);
 
     /**
      * Get the default branch name for the repository.

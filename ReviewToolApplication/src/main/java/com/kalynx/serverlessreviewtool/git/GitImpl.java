@@ -489,6 +489,22 @@ public class GitImpl implements Git {
         return future;
     }
 
+    private CompletableFuture<String> executeRemoteAsync(String... command) {
+        CompletableFuture<String> future = new CompletableFuture<>();
+
+        ProcessUtils.runProcess(command)
+                .workingDirectory(gitLocalPath)
+                .timeout(Duration.ofSeconds(30))
+                .onSuccess(future::complete)
+                .onFailure(error -> future.completeExceptionally(
+                    new RuntimeException("Git command failed: " + String.join(" ", command) + "\n" + error)))
+                .onTimeout(() -> future.completeExceptionally(
+                    new RuntimeException("Command timed out: " + String.join(" ", command))))
+                .runAsync();
+
+        return future;
+    }
+
     private void deleteDirectory(Path path) throws IOException {
         if (!Files.exists(path)) {
             return;
@@ -572,6 +588,28 @@ public class GitImpl implements Git {
     }
 
     @Override
+    public CompletableFuture<List<String>> listBranchesRemote(String remoteUrl) {
+        return executeRemoteAsync("git", "ls-remote", "--heads", remoteUrl)
+            .thenApply(output -> Arrays.stream(output.split("\n"))
+                .map(String::trim)
+                .filter(line -> !line.isEmpty())
+                .map(line -> {
+                    String[] parts = line.split("\\s+");
+                    if (parts.length >= 2) {
+                        String ref = parts[1];
+                        if (ref.startsWith("refs/heads/")) {
+                            return ref.substring("refs/heads/".length());
+                        }
+                        return ref;
+                    }
+                    return "";
+                })
+                .filter(branch -> !branch.isEmpty())
+                .distinct()
+                .collect(Collectors.toList()));
+    }
+
+    @Override
     public CompletableFuture<List<String>> listCommits(String repository, String ref, int maxCount) {
         Path repoPath = gitLocalPath.resolve(repository);
         return resolveBranchRef(repoPath, ref)
@@ -621,5 +659,17 @@ public class GitImpl implements Git {
                 .filter(line -> !line.trim().isEmpty())
                 .collect(Collectors.toList()));
     }
-}
 
+    @Override
+    public CompletableFuture<Void> ensureCloned(String repoName, String remoteUrl) {
+        Path repoPath = gitLocalPath.resolve(repoName);
+        return isValidGitRepository(repoPath)
+            .thenCompose(isValid -> {
+                if (isValid) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                logger.info("Repository '{}' not found locally, cloning from {}", repoName, remoteUrl);
+                return cloneRepository(remoteUrl);
+            });
+    }
+}

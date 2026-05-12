@@ -140,7 +140,16 @@ public class ReviewItemLoader {
 
                 ReviewStatus status = parseStatus(statusStr);
 
-                long lastUpdate = getMostRecentTimestamp(titleEntries, authorEntries, statusEntries, reviewerEntries);
+                long lastUpdate = getMostRecentTimestamp(
+                    titleEntries,
+                    metadata.descriptions(),
+                    authorEntries,
+                    metadata.primaryRepository(),
+                    metadata.branches(),
+                    metadata.baseBranches(),
+                    statusEntries,
+                    reviewerEntries
+                );
 
                 return new ReviewItem(reviewId, title, author, primaryRepo, List.of(repositoryName), status, lastUpdate, reviewers, branch, baseBranch);
             })
@@ -164,17 +173,25 @@ public class ReviewItemLoader {
     }
 
     private long getMostRecentTimestamp(List<StreamEntry<String>> titleEntries,
+                                        List<StreamEntry<String>> descriptionEntries,
                                         List<StreamEntry<String>> authorEntries,
+                                        List<StreamEntry<String>> primaryRepositoryEntries,
+                                        List<StreamEntry<String>> branchEntries,
+                                        List<StreamEntry<String>> baseBranchEntries,
                                         List<StreamEntry<String>> statusEntries,
                                         List<StreamEntry<com.kalynx.serverlessreviewtool.models.review.ReviewerData>> reviewerEntries) {
         long mostRecent = 0;
 
         mostRecent = Math.max(mostRecent, getLatestTimestamp(titleEntries));
+        mostRecent = Math.max(mostRecent, getLatestTimestamp(descriptionEntries));
         mostRecent = Math.max(mostRecent, getLatestTimestamp(authorEntries));
+        mostRecent = Math.max(mostRecent, getLatestTimestamp(primaryRepositoryEntries));
+        mostRecent = Math.max(mostRecent, getLatestTimestamp(branchEntries));
+        mostRecent = Math.max(mostRecent, getLatestTimestamp(baseBranchEntries));
         mostRecent = Math.max(mostRecent, getLatestTimestamp(statusEntries));
         mostRecent = Math.max(mostRecent, getLatestTimestamp(reviewerEntries));
 
-        return mostRecent > 0 ? mostRecent : System.currentTimeMillis();
+        return mostRecent;
     }
 
     private <T> long getLatestTimestamp(List<StreamEntry<T>> entries) {

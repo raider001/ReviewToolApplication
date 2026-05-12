@@ -79,18 +79,25 @@ public class CreateReviewDialog extends ReviewFormDialog {
         String commitRange = baseBranch + ".." + branch;
 
         List<CompletableFuture<java.util.Map.Entry<String, List<String>>>> commitFutures = allRepositories.stream()
-            .map(repoName ->
-                git.fetch(repoName)
-                    .thenCompose(v -> git.listCommits(repoName, commitRange, 1000))
+            .map(repoName -> {
+                String repoUrl = resolveRepositoryUrl(repoName);
+                return git.ensureCloned(repoName, repoUrl)
+                    .thenCompose(_ -> git.fetch(repoName))
+                    .thenCompose(_ -> git.listCommits(repoName, commitRange, 1000))
                     .thenApply(commitMessages -> {
                         List<String> commitHashes = extractCommitHashes(commitMessages);
                         return java.util.Map.entry(repoName, commitHashes);
                     })
-            )
+                    .exceptionally(error -> {
+                        LOGGER.warn("Skipping repository '{}' - could not list commits for range '{}': {}",
+                            repoName, commitRange, error.getMessage());
+                        return java.util.Map.entry(repoName, List.of());
+                    });
+            })
             .toList();
 
         CompletableFuture.allOf(commitFutures.toArray(new CompletableFuture[0]))
-            .thenCompose(v -> {
+            .thenCompose(_ -> {
                 java.util.Map<String, List<String>> commitsByRepository = commitFutures.stream()
                     .map(CompletableFuture::join)
                     .collect(Collectors.toMap(
@@ -98,32 +105,12 @@ public class CreateReviewDialog extends ReviewFormDialog {
                         java.util.Map.Entry::getValue
                     ));
 
-                boolean hasCommits = commitsByRepository.values().stream()
-                    .anyMatch(commits -> !commits.isEmpty());
-
-                if (!hasCommits) {
-                    LOGGER.warn("No commits found in any repository between {} and {}", baseBranch, branch);
-                    return CompletableFuture.failedFuture(
-                        new IllegalArgumentException("No commits found in any repository between '" + baseBranch +
-                            "' and '" + branch + "'. Either the branches don't exist or they are identical.")
-                    );
-                }
-
                 return notesManager.createReviewAcrossRepositories(
-                    reviewId,
-                    editor,
-                    title,
-                    author,
-                    summary,
-                    "open",
-                    commitsByRepository,
-                    reviewers,
-                    allRepositories,
-                    branch,
-                    baseBranch
+                    reviewId, editor, title, author, summary, "open",
+                    commitsByRepository, reviewers, allRepositories, branch, baseBranch
                 );
             })
-            .thenAccept(v -> SwingUtilities.invokeLater(() -> {
+            .thenAccept(_ -> SwingUtilities.invokeLater(() -> {
                 LoadingStateManager.getInstance().stopLoading("create-review");
                 confirmed = true;
                 dispose();
@@ -132,21 +119,22 @@ public class CreateReviewDialog extends ReviewFormDialog {
             .exceptionally(ex -> {
                 LoadingStateManager.getInstance().stopLoading("create-review");
                 Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                String errorMessage;
-
-                if (cause.getMessage() != null && cause.getMessage().contains("unknown revision")) {
-                    errorMessage = "Branch '" + branch + "' or '" + baseBranch +
-                        "' does not exist in one or more repositories.";
-                } else if (cause instanceof IllegalArgumentException) {
-                    errorMessage = cause.getMessage();
-                } else {
-                    errorMessage = "Failed to create review: " + cause.getMessage();
-                }
+                String errorMessage = cause instanceof IllegalArgumentException
+                    ? cause.getMessage()
+                    : "Failed to create review: " + cause.getMessage();
 
                 SwingUtilities.invokeLater(() -> ThemedOptionPane.showError(this, errorMessage));
                 LOGGER.error("Failed to create review {}: {}", reviewId, cause.getMessage(), cause);
                 return null;
             });
+    }
+
+    private String resolveRepositoryUrl(String repoName) {
+        com.kalynx.serverlessreviewtool.models.Repository repo = repositoryManager.getRepositoryByName(repoName);
+        if (repo == null || repo.getUrl() == null || repo.getUrl().isEmpty()) {
+            throw new RuntimeException("No URL configured for repository: " + repoName);
+        }
+        return repo.getUrl();
     }
 
     private List<String> extractCommitHashes(List<String> commitMessages) {

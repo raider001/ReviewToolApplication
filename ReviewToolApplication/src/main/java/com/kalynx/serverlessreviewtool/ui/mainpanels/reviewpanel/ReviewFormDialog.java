@@ -16,7 +16,9 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 public abstract class ReviewFormDialog extends ThemedPopupDialog {
@@ -120,31 +122,59 @@ public abstract class ReviewFormDialog extends ThemedPopupDialog {
         List<Repository> selectedRepos = selectedRepoNames.stream()
             .map(name -> findRepositoryByName(allRepos, name))
             .filter(Objects::nonNull)
-            .collect(Collectors.toList());
+            .toList();
 
         if (selectedRepos.isEmpty()) {
             models.availableBranches.setValue(new ArrayList<>());
             return;
         }
 
-        String primaryRepoName = selectedRepoNames.getFirst();
-        git.fetch(primaryRepoName)
-            .thenCompose(ignored -> git.listBranches(primaryRepoName))
-            .thenAccept(branches -> SwingUtilities.invokeLater(() -> {
-                repositoryManager.updateBranchesForRepository(primaryRepoName, branches);
-                List<Repository> updatedRepos = repositoryManager.getRepositories();
-                List<Repository> updatedSelectedRepos = selectedRepoNames.stream()
-                    .map(name -> findRepositoryByName(updatedRepos, name))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-                List<String> commonBranches = findCommonBranches(updatedSelectedRepos);
-                models.availableBranches.setValue(commonBranches);
-            }))
+        List<CompletableFuture<Map.Entry<String, List<String>>>> fetchFutures =
+            selectedRepos.stream()
+                .map(repo -> fetchBranchesWithFallback(repo.getName(), repo)
+                    .thenApply(branches -> Map.entry(repo.getName(), branches))
+                    .exceptionally(error -> {
+                        LOGGER.error("Failed to fetch branches for {}", repo.getName(), error);
+                        return Map.entry(repo.getName(), repo.getBranches());
+                    }))
+                .toList();
+
+        CompletableFuture.allOf(fetchFutures.toArray(new CompletableFuture[0]))
+            .thenAccept(ignored -> {
+                Map<String, List<String>> branchesByRepo = fetchFutures.stream()
+                    .map(CompletableFuture::join)
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+                SwingUtilities.invokeLater(() -> {
+                    repositoryManager.updateBranchesForRepositories(branchesByRepo);
+
+                    List<Repository> updatedRepos = repositoryManager.getRepositories();
+                    List<Repository> updatedSelectedRepos = selectedRepoNames.stream()
+                        .map(name -> findRepositoryByName(updatedRepos, name))
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+
+                    models.availableBranches.setValue(findCommonBranches(updatedSelectedRepos));
+                });
+            });
+    }
+
+    private CompletableFuture<List<String>> fetchBranchesWithFallback(
+            String repoName, Repository repo) {
+        if (repo != null && repo.getUrl() != null && !repo.getUrl().isEmpty()) {
+            return git.listBranchesRemote(repo.getUrl())
+                .exceptionally(error -> {
+                    LOGGER.debug("Failed to fetch branches remotely for {}, attempting local fetch", repoName, error);
+                    return git.listBranches(repoName).join();
+                });
+        }
+        return git.fetch(repoName)
+            .thenCompose(ignored -> git.listBranches(repoName))
             .exceptionally(error -> {
-                LOGGER.error("Failed to fetch branches for {}", primaryRepoName, error);
-                List<String> commonBranches = findCommonBranches(selectedRepos);
-                SwingUtilities.invokeLater(() -> models.availableBranches.setValue(commonBranches));
-                return null;
+                if (error.getMessage() != null && error.getMessage().contains("not found")) {
+                    throw new RuntimeException("Repository " + repoName + " not cloned locally and no URL provided", error);
+                }
+                throw new RuntimeException(error);
             });
     }
 

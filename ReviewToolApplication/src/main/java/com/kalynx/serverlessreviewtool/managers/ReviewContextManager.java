@@ -326,10 +326,12 @@ public class ReviewContextManager {
             return loadReviewMetadata(reviewId);
         }
 
-        String primaryRepoName = specificRepositories.getFirst().getName();
-        LOGGER.debug("Loading review {} from {} specified repositories, primary={} (skipping discovery scan)",
-            reviewId, specificRepositories.size(), primaryRepoName);
-        return loadReviewFromRepositories(reviewId, primaryRepoName, specificRepositories, true);
+        return resolvePrimaryRepositoryForReview(reviewId, specificRepositories)
+            .thenCompose(primaryRepoName -> {
+                LOGGER.debug("Loading review {} from {} specified repositories, primary={} (resolved from metadata)",
+                    reviewId, specificRepositories.size(), primaryRepoName);
+                return loadReviewFromRepositories(reviewId, primaryRepoName, specificRepositories, true);
+            });
     }
 
     /**
@@ -356,10 +358,128 @@ public class ReviewContextManager {
             return loadReviewMetadataOnly(reviewId);
         }
 
-        String primaryRepoName = specificRepositories.getFirst().getName();
-        LOGGER.debug("Loading review {} from {} specified repositories, primary={} (metadata only, skipping discovery scan)",
-            reviewId, specificRepositories.size(), primaryRepoName);
-        return loadReviewFromRepositories(reviewId, primaryRepoName, specificRepositories, false);
+        return resolvePrimaryRepositoryForReview(reviewId, specificRepositories)
+            .thenCompose(primaryRepoName -> {
+                LOGGER.debug("Loading review {} from {} specified repositories, primary={} (metadata only, resolved from metadata)",
+                    reviewId, specificRepositories.size(), primaryRepoName);
+                return loadReviewFromRepositories(reviewId, primaryRepoName, specificRepositories, false);
+            });
+    }
+
+    /**
+     * Load review metadata from specific repositories with a pre-known primary repository.
+     * Skips primary repository resolution, going directly to metadata loading.
+     * Use this when opening a review from a cached ReviewItem that already has primaryRepository set.
+     *
+     * @param reviewId the review identifier
+     * @param repositoryNames list of repository names that contain the review
+     * @param knownPrimaryRepoName primary repository name from the cached ReviewItem
+     * @return future that completes when ReviewContext is created and set
+     */
+    public CompletableFuture<ReviewContext> loadReviewMetadata(String reviewId, List<String> repositoryNames, String knownPrimaryRepoName) {
+        if (reviewId == null || reviewId.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        if (repositoryNames == null || repositoryNames.isEmpty() || knownPrimaryRepoName == null || knownPrimaryRepoName.isBlank()) {
+            return loadReviewMetadata(reviewId, repositoryNames);
+        }
+
+        List<Repository> specificRepositories = resolveRepositories(repositoryNames);
+
+        if (specificRepositories.isEmpty()) {
+            LOGGER.warn("None of the specified repositories found for review {}, falling back to search all", reviewId);
+            return loadReviewMetadata(reviewId);
+        }
+
+        LOGGER.debug("Loading review {} from {} specified repositories, primary={} (from cached ReviewItem, skipping resolution)",
+            reviewId, specificRepositories.size(), knownPrimaryRepoName);
+        return loadReviewFromRepositories(reviewId, knownPrimaryRepoName, specificRepositories, true);
+    }
+
+    /**
+     * Load review metadata from specific repositories with a pre-known primary repository, without reloading comments.
+     * Skips primary repository resolution, going directly to metadata loading.
+     * Use this when refreshing a review that is already open and its primary repository is known.
+     *
+     * @param reviewId the review identifier
+     * @param repositoryNames list of repository names that contain the review
+     * @param knownPrimaryRepoName primary repository name
+     * @return future that completes when ReviewContext metadata is refreshed
+     */
+    public CompletableFuture<ReviewContext> loadReviewMetadataOnly(String reviewId, List<String> repositoryNames, String knownPrimaryRepoName) {
+        if (reviewId == null || reviewId.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        if (repositoryNames == null || repositoryNames.isEmpty() || knownPrimaryRepoName == null || knownPrimaryRepoName.isBlank()) {
+            return loadReviewMetadataOnly(reviewId, repositoryNames);
+        }
+
+        List<Repository> specificRepositories = resolveRepositories(repositoryNames);
+
+        if (specificRepositories.isEmpty()) {
+            LOGGER.warn("None of the specified repositories found for review {}, falling back to search all", reviewId);
+            return loadReviewMetadataOnly(reviewId);
+        }
+
+        LOGGER.debug("Loading review {} from {} specified repositories, primary={} (from context, skipping resolution, metadata only)",
+            reviewId, specificRepositories.size(), knownPrimaryRepoName);
+        return loadReviewFromRepositories(reviewId, knownPrimaryRepoName, specificRepositories, false);
+    }
+
+    private CompletableFuture<String> resolvePrimaryRepositoryForReview(String reviewId, List<Repository> candidateRepositories) {
+        if (candidateRepositories == null || candidateRepositories.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        List<CompletableFuture<PrimaryRepositoryCandidate>> futures = candidateRepositories.stream()
+            .map(repository -> {
+                GitReviewNotesManager notesManager = new GitReviewNotesManager(git, repository.getName());
+                return notesManager.readAllMetadata(reviewId)
+                    .thenApply(metadata -> buildPrimaryRepositoryCandidate(repository, metadata))
+                    .exceptionally(_ -> new PrimaryRepositoryCandidate(repository.getName(), null, 0L, false));
+            })
+            .toList();
+
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenApply(ignored -> Objects.requireNonNull(futures.stream()
+                    .map(CompletableFuture::join)
+                    .filter(PrimaryRepositoryCandidate::isExplicitPrimary)
+                    .max(Comparator.comparingLong(PrimaryRepositoryCandidate::timestamp)
+                            .thenComparing(PrimaryRepositoryCandidate::repositoryName))
+                    .map(PrimaryRepositoryCandidate::claimedPrimaryRepository)
+                    .orElse(null)))
+            .thenCompose(explicitPrimary -> {
+                if (!explicitPrimary.isBlank()) {
+                    return CompletableFuture.completedFuture(explicitPrimary);
+                }
+                return findAllRepositoriesContainingReview(reviewId, candidateRepositories)
+                    .thenApply(foundRepositories -> {
+                        if (!foundRepositories.isEmpty()) {
+                            return foundRepositories.getFirst().getName();
+                        }
+                        String fallback = candidateRepositories.getFirst().getName();
+                        LOGGER.warn("Could not resolve primary repository for review {} from metadata; falling back to {}",
+                            reviewId, fallback);
+                        return fallback;
+                    });
+            });
+    }
+
+    private PrimaryRepositoryCandidate buildPrimaryRepositoryCandidate(
+            Repository repository,
+            GitReviewNotesManager.ReviewMetadata metadata) {
+        String rawValue = getLatestValue(metadata.primaryRepository());
+        if (rawValue == null || rawValue.isBlank() || "false".equalsIgnoreCase(rawValue.trim())) {
+            return new PrimaryRepositoryCandidate(repository.getName(), null, 0L, false);
+        }
+
+        String claimedPrimary = "true".equalsIgnoreCase(rawValue.trim())
+            ? repository.getName()
+            : rawValue;
+        long timestamp = getLatestTimestamp(metadata.primaryRepository());
+        return new PrimaryRepositoryCandidate(repository.getName(), claimedPrimary, timestamp, true);
     }
 
     private List<Repository> resolveRepositories(List<String> repositoryNames) {
@@ -404,8 +524,9 @@ public class ReviewContextManager {
             String primaryRepoName,
             List<Repository> reviewRepositories,
             boolean includeComments) {
+        List<Repository> orderedRepositories = orderRepositoriesWithPrimaryFirst(reviewRepositories, primaryRepoName);
         LOGGER.debug("Loading review metadata: reviewId={}, primaryRepo={}, repos={}",
-            reviewId, primaryRepoName, reviewRepositories.size());
+            reviewId, primaryRepoName, orderedRepositories.size());
 
         GitReviewNotesManager notesManager = new GitReviewNotesManager(git, primaryRepoName);
         List<com.kalynx.serverlessreviewtool.models.ReviewComment> existingComments =
@@ -468,7 +589,7 @@ public class ReviewContextManager {
 
                 ReviewContext reviewContext = new ReviewContext(
                     reviewId, resolvedTitle, resolvedDescription, resolvedAuthor,
-                    status, reviewers, reviewRepositories, comments,
+                    status, reviewers, orderedRepositories, comments,
                     branch, baseBranch, hasClosedHistory
                 );
                 setReviewContext(reviewContext);
@@ -478,6 +599,26 @@ public class ReviewContextManager {
                 LOGGER.error("Failed to load review metadata for {}: {}", reviewId, error.getMessage(), error);
                 return null;
             });
+    }
+
+    private List<Repository> orderRepositoriesWithPrimaryFirst(List<Repository> repositories, String primaryRepoName) {
+        if (repositories == null || repositories.isEmpty() || primaryRepoName == null || primaryRepoName.isBlank()) {
+            return repositories != null ? new ArrayList<>(repositories) : new ArrayList<>();
+        }
+
+        List<Repository> ordered = new ArrayList<>();
+        repositories.stream()
+            .filter(Objects::nonNull)
+            .filter(repository -> primaryRepoName.equals(repository.getName()))
+            .findFirst()
+            .ifPresent(ordered::add);
+
+        repositories.stream()
+            .filter(Objects::nonNull)
+            .filter(repository -> !primaryRepoName.equals(repository.getName()))
+            .forEach(ordered::add);
+
+        return ordered;
     }
 
     /**
@@ -884,7 +1025,25 @@ public class ReviewContextManager {
         return candidates;
     }
 
+    private long getLatestTimestamp(List<? extends StreamEntry<?>> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return 0;
+        }
+        return entries.stream()
+            .filter(Objects::nonNull)
+            .filter(entry -> entry.timestamp() != null)
+            .mapToLong(entry -> entry.timestamp().toEpochMilli())
+            .max()
+            .orElse(0);
+    }
+
     private record ResolvedRefs(String baseRef, String reviewRef) {}
+
+    private record PrimaryRepositoryCandidate(
+        String repositoryName,
+        String claimedPrimaryRepository,
+        long timestamp,
+        boolean isExplicitPrimary) {}
 
     /**
      * Set the current ReviewContext and notify all listeners.

@@ -97,11 +97,7 @@ public class GitReviewNotesManager {
                                                  List<String> reviewers,
                                                  String branch,
                                                  String baseBranch) {
-        if (commits == null || commits.isEmpty()) {
-            return CompletableFuture.failedFuture(
-                new IllegalArgumentException("Cannot create review without commits")
-            );
-        }
+        List<String> safeCommits = commits != null ? commits : List.of();
 
         List<String> streamPaths = List.of(
             "metadata/title",
@@ -123,7 +119,7 @@ public class GitReviewNotesManager {
                     ReviewStreamHelper.writeAuthor(getStreamPath(reviewId, "metadata/author"), editor, author);
                     ReviewStreamHelper.writeDescription(getStreamPath(reviewId, "metadata/description"), editor, description);
                     ReviewStreamHelper.writeStatus(getStreamPath(reviewId, "metadata/status"), editor, status);
-                    ReviewStreamHelper.writeCommits(getStreamPath(reviewId, "metadata/commits"), editor, commits);
+                    ReviewStreamHelper.writeCommits(getStreamPath(reviewId, "metadata/commits"), editor, safeCommits);
                     ReviewStreamHelper.writePrimaryRepository(getStreamPath(reviewId, "metadata/primaryRepository"), editor, "true");
                     ReviewStreamHelper.writeBranch(getStreamPath(reviewId, "metadata/branch"), editor, branch);
                     ReviewStreamHelper.writeBaseBranch(getStreamPath(reviewId, "metadata/baseBranch"), editor, baseBranch);
