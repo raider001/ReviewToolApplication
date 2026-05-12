@@ -44,6 +44,7 @@ public class DiffViewerPanel extends ThemedPanel {
     private transient Commit endCommit;
     private transient Theme lastRenderedTheme;
     private volatile int pendingTopLineRestore = -1;
+    private volatile boolean syncingScrollBars;
 
     public DiffViewerPanel(CodeViewerModel codeViewerModel, PluginManager pluginManager) {
         this.codeViewerModel = codeViewerModel;
@@ -189,14 +190,26 @@ public class DiffViewerPanel extends ThemedPanel {
 
         if (leftScrollBar != null && rightScrollBar != null) {
             leftScrollBar.addAdjustmentListener(e -> {
-                if (!e.getValueIsAdjusting()) {
+                if (syncingScrollBars) {
+                    return;
+                }
+                syncingScrollBars = true;
+                try {
                     rightScrollBar.setValue(e.getValue());
+                } finally {
+                    syncingScrollBars = false;
                 }
             });
 
             rightScrollBar.addAdjustmentListener(e -> {
-                if (!e.getValueIsAdjusting()) {
+                if (syncingScrollBars) {
+                    return;
+                }
+                syncingScrollBars = true;
+                try {
                     leftScrollBar.setValue(e.getValue());
+                } finally {
+                    syncingScrollBars = false;
                 }
             });
         }
