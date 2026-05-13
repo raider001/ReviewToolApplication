@@ -10,7 +10,7 @@ import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedSc
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewselectionpanel.ReviewSelectionPanelModel;
 import net.miginfocom.swing.MigLayout;
 
-import javax.swing.*;
+import javax.swing.SwingUtilities;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -133,9 +133,9 @@ public class ReviewTabsPanel extends ThemedPanel {
             AppSettings.ReviewTabConfig config = tabConfigs.get(i);
             List<ReviewItem> filtered = model.filterForTab(config);
             ReviewList list = reviewLists.get(i);
-            DefaultListModel<ReviewItem> listModel = (DefaultListModel<ReviewItem>) list.getModel();
-            listModel.removeAllElements();
-            filtered.forEach(listModel::addElement);
+            FilterableDefaultListModel<ReviewItem> listModel =
+                    (FilterableDefaultListModel<ReviewItem>) list.getModel();
+            listModel.setItems(filtered);
             tabbedPane.setUserTabCount(i, config.getName(), filtered.size());
         }
     }

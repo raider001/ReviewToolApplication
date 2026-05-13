@@ -32,6 +32,19 @@ public class FilterableDefaultListModel<E> extends DefaultListModel<E> {
         this.filterPredicate = filterPredicate;
     }
 
+    /**
+     * Replaces all items in one operation, calling {@link #applyFilter()} only once.
+     * Use this instead of {@link #removeAllElements()} followed by repeated
+     * {@link #addElement(Object)} calls to avoid O(n²) filter reapplication.
+     *
+     * @param items the new full set of items
+     */
+    public void setItems(List<E> items) {
+        allItems.clear();
+        allItems.addAll(items);
+        applyFilter();
+    }
+
     @Override
     public void addElement(E element) {
         allItems.add(element);

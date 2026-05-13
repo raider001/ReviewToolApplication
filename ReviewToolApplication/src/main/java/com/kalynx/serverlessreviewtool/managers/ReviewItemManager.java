@@ -145,10 +145,8 @@ public class ReviewItemManager {
 
             Map<String, ReviewItem> refreshedRepositorySnapshot = new HashMap<>();
             CompletableFuture<Void> refreshFuture = git.ensureCloned(repositoryName, descriptor.location())
-                .thenCompose(ignored -> reviewItemLoader.loadReviewsFromRepositoryLazy(repositoryName, review -> {
-                    refreshedRepositorySnapshot.put(review.getReviewId(), review);
-                    upsertRepositoryReview(repositoryName, review);
-                }))
+                .thenCompose(ignored -> reviewItemLoader.loadReviewsFromRepositoryLazy(repositoryName, review ->
+                    refreshedRepositorySnapshot.put(review.getReviewId(), review)))
                 .thenRun(() -> replaceRepositorySnapshot(repositoryName, refreshedRepositorySnapshot))
                 .exceptionally(ex -> {
                     LOGGER.warn("Failed to refresh repository {}", repositoryName, ex);
@@ -222,18 +220,6 @@ public class ReviewItemManager {
             snapshot = List.copyOf(reviewItems);
         }
         listener.accept(snapshot);
-    }
-
-    private void upsertRepositoryReview(String repositoryName, ReviewItem review) {
-        List<ReviewItem> snapshot;
-        synchronized (lock) {
-            repositoryReviewIndex
-                .computeIfAbsent(repositoryName, _ -> new HashMap<>())
-                .put(review.getReviewId(), review);
-            recomputeMergedReview(review.getReviewId());
-            snapshot = rebuildSnapshot();
-        }
-        notifyListeners(snapshot);
     }
 
     private void replaceRepositorySnapshot(String repositoryName, Map<String, ReviewItem> refreshedSnapshot) {

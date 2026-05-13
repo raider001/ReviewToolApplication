@@ -149,37 +149,34 @@ public class ReviewSelectionPanelModel {
         List<ReviewItem> all = allReviews.getValue();
         if (all == null || all.isEmpty()) return new ArrayList<>();
 
-        String titleContains      = tab.getTitleContains();
-        String authorContains     = tab.getAuthorContains();
-        List<String> reviewerPatterns = tab.getReviewerPatterns();
-        List<String> repoPatterns     = tab.getRepositories();
+        String titleContains          = tab.getTitleContains();
+        String authorContains         = tab.getAuthorContains();
+        List<Pattern> reviewerRegexes = compilePatterns(tab.getReviewerPatterns());
+        List<Pattern> repoRegexes     = compilePatterns(tab.getRepositories());
         List<String> statusFilters    = tab.getStatusFilters();
 
         return all.stream()
             .filter(r -> titleContains.isEmpty()  || r.getTitle().toLowerCase().contains(titleContains.toLowerCase()))
             .filter(r -> authorContains.isEmpty() || r.getAuthor().toLowerCase().contains(authorContains.toLowerCase()))
-            .filter(r -> matchesReviewerPatterns(r, reviewerPatterns))
-            .filter(r -> matchesRepoPatterns(r, repoPatterns))
+            .filter(r -> matchesCompiledPatterns(r.getReviewers(), reviewerRegexes))
+            .filter(r -> matchesCompiledPatterns(r.getRepositories(), repoRegexes))
             .filter(r -> matchesStatusFilters(r, statusFilters))
             .filter(r -> matchesInvolvementFilter(r, tab.getInvolvementFilter()))
             .toList();
     }
 
-    private boolean matchesReviewerPatterns(ReviewItem r, List<String> patterns) {
-        if (patterns == null || patterns.isEmpty()) return true;
-        return r.getReviewers().stream()
-            .anyMatch(reviewer -> patterns.stream().anyMatch(p -> matchesWildcard(reviewer, p)));
+    private List<Pattern> compilePatterns(List<String> wildcards) {
+        if (wildcards == null || wildcards.isEmpty()) return List.of();
+        return wildcards.stream().map(this::compileWildcard).toList();
     }
 
-    private boolean matchesRepoPatterns(ReviewItem r, List<String> patterns) {
-        if (patterns == null || patterns.isEmpty()) return true;
-        return r.getRepositories().stream()
-            .anyMatch(repo -> patterns.stream().anyMatch(p -> matchesWildcard(repo, p)));
+    private Pattern compileWildcard(String wildcard) {
+        return Pattern.compile("(?i)" + Pattern.quote(wildcard).replace("\\*", ".*").replace("\\?", "."));
     }
 
-    private boolean matchesWildcard(String text, String pattern) {
-        String regex = "(?i)" + Pattern.quote(pattern).replace("\\*", ".*").replace("\\?", ".");
-        return text.matches(regex);
+    private boolean matchesCompiledPatterns(List<String> values, List<Pattern> patterns) {
+        if (patterns.isEmpty()) return true;
+        return values.stream().anyMatch(v -> patterns.stream().anyMatch(p -> p.matcher(v).matches()));
     }
 
     private boolean matchesStatusFilters(ReviewItem r, List<String> filters) {

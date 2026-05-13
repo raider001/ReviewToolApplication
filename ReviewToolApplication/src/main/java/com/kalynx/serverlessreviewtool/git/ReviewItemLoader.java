@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -24,6 +25,7 @@ public class ReviewItemLoader {
     private final Git git;
     private static final String NOTES_REF_PREFIX = "refs/notes/reviews/";
     private static final Pattern REVIEW_ID_PATTERN = Pattern.compile("^" + Pattern.quote(NOTES_REF_PREFIX) + "([^/]+)/");
+    private static final int GIT_LOAD_BATCH_SIZE = 16;
 
     public ReviewItemLoader(Git git) {
         this.git = git;
@@ -36,7 +38,8 @@ public class ReviewItemLoader {
     }
 
     /**
-     * Loads review items from a repository and emits each item as soon as it is available.
+     * Loads review items from a repository in bounded batches and emits each item as soon as its batch completes.
+     * At most {@value #GIT_LOAD_BATCH_SIZE} concurrent git operations are in-flight at any time.
      *
      * @param repositoryName repository to load from
      * @param onReviewLoaded callback invoked for each loaded review item
@@ -45,18 +48,40 @@ public class ReviewItemLoader {
     public CompletableFuture<Void> loadReviewsFromRepositoryLazy(String repositoryName, Consumer<ReviewItem> onReviewLoaded) {
         return synchronizeRepository(repositoryName)
             .thenCompose(ignored -> listReviewIds(repositoryName))
-            .thenCompose(reviewIds -> {
-                List<CompletableFuture<Void>> reviewFutures = reviewIds.stream()
-                    .map(reviewId -> loadReviewItem(repositoryName, reviewId)
-                        .thenAccept(reviewItem -> {
-                            if (reviewItem != null) {
-                                onReviewLoaded.accept(reviewItem);
-                            }
-                        }))
-                    .toList();
+            .thenCompose(reviewIds -> loadInBatches(repositoryName, reviewIds, onReviewLoaded));
+    }
 
-                return CompletableFuture.allOf(reviewFutures.toArray(new CompletableFuture[0]));
-            });
+    private CompletableFuture<Void> loadInBatches(String repositoryName,
+                                                   List<String> reviewIds,
+                                                   Consumer<ReviewItem> onReviewLoaded) {
+        List<List<String>> batches = partition(reviewIds);
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+        for (List<String> batch : batches) {
+            chain = chain.thenCompose(ignored -> loadBatch(repositoryName, batch, onReviewLoaded));
+        }
+        return chain;
+    }
+
+    private CompletableFuture<Void> loadBatch(String repositoryName,
+                                               List<String> reviewIds,
+                                               Consumer<ReviewItem> onReviewLoaded) {
+        List<CompletableFuture<Void>> futures = reviewIds.stream()
+            .map(reviewId -> loadReviewItem(repositoryName, reviewId)
+                .thenAccept(reviewItem -> {
+                    if (reviewItem != null) {
+                        onReviewLoaded.accept(reviewItem);
+                    }
+                }))
+            .toList();
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+    }
+
+    private static <T> List<List<T>> partition(List<T> list) {
+        List<List<T>> partitions = new ArrayList<>();
+        for (int i = 0; i < list.size(); i += ReviewItemLoader.GIT_LOAD_BATCH_SIZE) {
+            partitions.add(list.subList(i, Math.min(i + ReviewItemLoader.GIT_LOAD_BATCH_SIZE, list.size())));
+        }
+        return partitions;
     }
 
     private CompletableFuture<Void> synchronizeRepository(String repositoryName) {
@@ -73,7 +98,7 @@ public class ReviewItemLoader {
     private CompletableFuture<List<String>> listReviewIds(String repositoryName) {
         return git.executeAsync(repositoryName, "show-ref")
             .thenApply(output -> {
-                List<String> reviewIds = new ArrayList<>();
+                LinkedHashSet<String> reviewIdSet = new LinkedHashSet<>();
                 String[] lines = output.split("\n");
 
                 for (String line : lines) {
@@ -83,16 +108,13 @@ public class ReviewItemLoader {
                         if (ref.startsWith(NOTES_REF_PREFIX)) {
                             Matcher matcher = REVIEW_ID_PATTERN.matcher(ref);
                             if (matcher.find()) {
-                                String reviewId = matcher.group(1);
-                                if (!reviewIds.contains(reviewId)) {
-                                    reviewIds.add(reviewId);
-                                }
+                                reviewIdSet.add(matcher.group(1));
                             }
                         }
                     }
                 }
 
-                return reviewIds;
+                return (List<String>) new ArrayList<>(reviewIdSet);
             })
             .exceptionally(_ -> new ArrayList<>());
     }
