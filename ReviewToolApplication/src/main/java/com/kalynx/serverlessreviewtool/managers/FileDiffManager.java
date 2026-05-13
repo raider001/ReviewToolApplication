@@ -62,10 +62,16 @@ public class FileDiffManager {
                         }
                         codeViewerModel.setAvailableCommits(commitsForModel);
 
-                        Commit baselineCommit = startCommit != null ? startCommit : commits.getLast();
-                        logger.info("Setting initial commit range: start={} (baseline), end={} (latest)",
-                            baselineCommit.getShortHash(), endCommit.getShortHash());
-                        codeViewerModel.setCommitRange(baselineCommit, endCommit);
+                        if (codeViewerModel.startCommit.getValue() == null || codeViewerModel.endCommit.getValue() == null) {
+                            Commit baselineCommit = startCommit != null ? startCommit : commits.getLast();
+                            logger.info("Setting initial commit range: start={} (baseline), end={} (latest)",
+                                baselineCommit.getShortHash(), endCommit.getShortHash());
+                            codeViewerModel.setCommitRange(baselineCommit, endCommit);
+                        } else {
+                            logger.info("Preserving existing commit range: start={}, end={}",
+                                codeViewerModel.startCommit.getValue().getShortHash(),
+                                codeViewerModel.endCommit.getValue().getShortHash());
+                        }
                     });
             })
             .exceptionally(error -> {
@@ -116,8 +122,14 @@ public class FileDiffManager {
                         }
                         codeViewerModel.setAvailableCommits(commitsForModel);
 
-                        Commit baselineCommit = startCommit != null ? startCommit : commits.getLast();
-                        codeViewerModel.setCommitRange(baselineCommit, endCommit);
+                        if (codeViewerModel.startCommit.getValue() == null || codeViewerModel.endCommit.getValue() == null) {
+                            Commit baselineCommit = startCommit != null ? startCommit : commits.getLast();
+                            codeViewerModel.setCommitRange(baselineCommit, endCommit);
+                        } else {
+                            logger.info("Preserving existing commit range during snapshot load: start={}, end={}",
+                                codeViewerModel.startCommit.getValue().getShortHash(),
+                                codeViewerModel.endCommit.getValue().getShortHash());
+                        }
                     });
             })
             .exceptionally(error -> {
