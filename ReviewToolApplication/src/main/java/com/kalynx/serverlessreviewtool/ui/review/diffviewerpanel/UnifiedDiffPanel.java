@@ -46,7 +46,6 @@ public class UnifiedDiffPanel extends ThemedPanel {
     private void configureLayout() {
         setLayout(new BorderLayout());
         unifiedScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        unifiedScrollPane.setReferencePaneForAnnotations(unifiedPane);
         add(unifiedScrollPane, BorderLayout.CENTER);
     }
 

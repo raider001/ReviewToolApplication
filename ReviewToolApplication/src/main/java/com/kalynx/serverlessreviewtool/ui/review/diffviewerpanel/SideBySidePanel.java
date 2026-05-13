@@ -54,10 +54,7 @@ public class SideBySidePanel extends ThemedPanel {
         setLayout(new BorderLayout());
 
         leftScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        leftScrollPane.setReferencePaneForAnnotations(leftPane);
-
         rightScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        rightScrollPane.setReferencePaneForAnnotations(rightPane);
 
         synchronizeScrollPanes(leftScrollPane, rightScrollPane);
 
@@ -233,13 +230,14 @@ public class SideBySidePanel extends ThemedPanel {
     }
 
     private void synchronizeScrollPanes(JScrollPane left, JScrollPane right) {
-        JScrollBar leftBar = left.getVerticalScrollBar();
-        JScrollBar rightBar = right.getVerticalScrollBar();
+        linkScrollBars(left.getVerticalScrollBar(), right.getVerticalScrollBar());
+        linkScrollBars(left.getHorizontalScrollBar(), right.getHorizontalScrollBar());
+    }
 
-        if (leftBar == null || rightBar == null) return;
-
-        leftBar.addAdjustmentListener(new AdjustmentListenerWrapper(rightBar));
-        rightBar.addAdjustmentListener(new AdjustmentListenerWrapper(leftBar));
+    private void linkScrollBars(JScrollBar a, JScrollBar b) {
+        if (a == null || b == null) return;
+        a.addAdjustmentListener(new AdjustmentListenerWrapper(b));
+        b.addAdjustmentListener(new AdjustmentListenerWrapper(a));
     }
 
     private static int computeTopVisibleLine(JTextPane pane) {

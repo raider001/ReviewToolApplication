@@ -33,7 +33,7 @@ public class AnnotatedScrollPane extends ThemedScrollPane {
     private final AnnotatedScrollBar annotatedScrollBar = new AnnotatedScrollBar();
     private final ThemeManager themeManager = ThemeManager.getInstance();
 
-    private LineNumberedTextPane referencePaneForAnnotations;
+    private final LineNumberedTextPane referencePaneForAnnotations;
 
     private int cachedTotalLines = 0;
     private Set<Integer> cachedAdded = Set.of();
@@ -42,25 +42,18 @@ public class AnnotatedScrollPane extends ThemedScrollPane {
     private List<ReviewComment> cachedComments = List.of();
 
     /**
-     * Creates an annotated scroll pane wrapping the supplied view component.
+     * Creates an annotated scroll pane wrapping the supplied {@link LineNumberedTextPane}.
+     * The line-number panel is installed as the scroll pane's row header so that it scrolls
+     * vertically with the content but is never affected by horizontal scrolling.
      *
-     * @param view the component to scroll
+     * @param pane the {@link LineNumberedTextPane} to display
      */
-    public AnnotatedScrollPane(Component view) {
-        super(view);
+    public AnnotatedScrollPane(LineNumberedTextPane pane) {
+        super(pane);
         setVerticalScrollBar(annotatedScrollBar);
         setVerticalScrollBarPolicy(VERTICAL_SCROLLBAR_ALWAYS);
-    }
-
-    /**
-     * Registers the text pane whose document is queried when computing accurate comment
-     * positions via {@link JTextPane#modelToView2D}. Also triggers a change-annotation
-     * refresh whenever the pane is resized (e.g. after content changes).
-     *
-     * @param pane the {@link LineNumberedTextPane} displayed inside this scroll pane
-     */
-    public void setReferencePaneForAnnotations(LineNumberedTextPane pane) {
-        this.referencePaneForAnnotations = pane;
+        setRowHeaderView(pane.getLineNumberPanel());
+        referencePaneForAnnotations = pane;
         pane.getTextPane().addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {

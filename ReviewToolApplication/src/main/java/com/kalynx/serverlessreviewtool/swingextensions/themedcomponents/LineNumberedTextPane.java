@@ -53,23 +53,25 @@ public class LineNumberedTextPane extends ThemedPanel {
         textPane.setMargin(new Insets(0, 0, 0, 0));
 
         setLayout(new BorderLayout());
-        add(lineNumberPanel, BorderLayout.WEST);
         add(textPane, BorderLayout.CENTER);
 
         textPane.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
                 lineNumberPanel.repaint();
+                lineNumberPanel.revalidate();
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
                 lineNumberPanel.repaint();
+                lineNumberPanel.revalidate();
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
                 lineNumberPanel.repaint();
+                lineNumberPanel.revalidate();
             }
         });
 
@@ -200,24 +202,6 @@ public class LineNumberedTextPane extends ThemedPanel {
         lineNumberPanel.repaint();
     }
 
-    /**
-     * Mark a line as removed
-     */
-    public void markLineRemoved(int lineNumber) {
-        removedLines.add(lineNumber);
-        addedLines.remove(lineNumber);
-        modifiedLines.remove(lineNumber);
-        lineNumberPanel.repaint();
-    }
-
-    @SuppressWarnings("unused")
-    public void markLineModified(int lineNumber) {
-        modifiedLines.add(lineNumber);
-        addedLines.remove(lineNumber);
-        removedLines.remove(lineNumber);
-        lineNumberPanel.repaint();
-    }
-
     public void clearLineIndicators() {
         addedLines.clear();
         removedLines.clear();
@@ -274,6 +258,17 @@ public class LineNumberedTextPane extends ThemedPanel {
         }
 
         @Override
+        public Dimension getPreferredSize() {
+            FontMetrics fm = getFontMetrics(new Font(FONT_NAME, Font.PLAIN, scaledFontSize));
+            String text = textPane.getText();
+            int lineCount = text.isEmpty() ? 1 : text.split("\n", -1).length;
+            int maxLineWidth = fm.stringWidth(String.valueOf(lineCount));
+            int width = ICON_SPACE + maxLineWidth + RIGHT_MARGIN + 5;
+            int height = textPane.getPreferredSize().height;
+            return new Dimension(width, height);
+        }
+
+        @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
             Graphics2D g2d = (Graphics2D) g;
@@ -302,20 +297,24 @@ public class LineNumberedTextPane extends ThemedPanel {
             // Get text from pane
             String text = textPane.getText();
             if (text.isEmpty()) {
-                updatePreferredWidth(fm);
+                updatePreferredWidth();
                 return;
             }
 
-            // Start drawing from top with padding - no manual offset needed
-            // The row header viewport handles scrolling automatically
+            // Use clip bounds so only visible lines are drawn (efficient for large files)
+            Rectangle clip = g2d.getClipBounds();
+            int firstVisibleY = clip != null ? clip.y : 0;
+            int lastVisibleY = clip != null ? clip.y + clip.height : getHeight();
+
+            // Start drawing from top with padding
             int lineNumber = 1;
             int y = ascent;
 
             // Draw line numbers and background colors
             String[] lines = text.split("\n", -1);
             for (String ignored : lines) {
-                if (y > getHeight()) break;
-                if (y + lineHeight < 0) {
+                if (y > lastVisibleY) break;
+                if (y + lineHeight <= firstVisibleY) {
                     y += lineHeight;
                     lineNumber++;
                     continue;
@@ -335,20 +334,12 @@ public class LineNumberedTextPane extends ThemedPanel {
                 lineNumber++;
             }
 
-            // Update preferred width based on number of lines
-            updatePreferredWidth(fm);
+            // Notify layout of any width change
+            updatePreferredWidth();
         }
 
-        private void updatePreferredWidth(FontMetrics fm) {
-            String text = textPane.getText();
-            int lineCount = text.isEmpty() ? 1 : text.split("\n", -1).length;
-            int maxLineWidth = fm.stringWidth(String.valueOf(lineCount));
-            int preferredWidth = ICON_SPACE + maxLineWidth + RIGHT_MARGIN + 5;
-
-            if (getPreferredSize().width != preferredWidth) {
-                setPreferredSize(new Dimension(preferredWidth, 0));
-                revalidate();
-            }
+        private void updatePreferredWidth() {
+            revalidate();
         }
 
         private void drawLineBackground(Graphics2D g2d, int lineNumber, int y, int lineHeight) {
