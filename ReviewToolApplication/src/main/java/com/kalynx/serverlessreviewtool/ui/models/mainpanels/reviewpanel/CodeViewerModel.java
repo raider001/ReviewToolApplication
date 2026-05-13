@@ -3,18 +3,26 @@ package com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel;
 import com.kalynx.serverlessreviewtool.models.Commit;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
 import com.kalynx.serverlessreviewtool.swingextensions.ComponentModel;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class CodeViewerModel {
-    private static final Logger LOGGER = LoggerFactory.getLogger(CodeViewerModel.class);
 
     public enum DiffMode {
         SIDE_BY_SIDE,
         UNIFIED
+    }
+
+    /**
+     * Holds all three content values that make up a diff view update.
+     * Fired as a single atomic event to prevent race conditions between separate listeners.
+     *
+     * @param left    before-content for the left pane
+     * @param right   after-content for the right pane
+     * @param unified unified diff string
+     */
+    public record FileContent(String left, String right, String unified) {
     }
 
     public final ComponentModel<List<ReviewFile>> availableFiles = new ComponentModel<>();
@@ -31,6 +39,7 @@ public class CodeViewerModel {
     public final ComponentModel<String> leftContent = new ComponentModel<>();
     public final ComponentModel<String> rightContent = new ComponentModel<>();
     public final ComponentModel<String> unifiedDiffContent = new ComponentModel<>();
+    public final ComponentModel<FileContent> fileContent = new ComponentModel<>();
 
     public final ComponentModel<Integer> selectedLine = new ComponentModel<>();
     public final ComponentModel<Boolean> isLoadingFile = new ComponentModel<>();
@@ -93,36 +102,13 @@ public class CodeViewerModel {
     }
 
     public void setFileContent(String left, String right, String unified) {
-        leftContent.setValue(left != null ? left : "");
-        rightContent.setValue(right != null ? right : "");
-        unifiedDiffContent.setValue(unified != null ? unified : "");
-    }
-
-    public void setLeftContent(String content) {
-        String safeContent = content != null ? content : "";
-        LOGGER.debug("[CodeViewerModel] setLeftContent called: {} chars", safeContent.length());
-        if (safeContent.isEmpty()) {
-            LOGGER.warn("[CodeViewerModel] Setting empty left content");
-        }
-        leftContent.setValue(safeContent);
-    }
-
-    public void setRightContent(String content) {
-        String safeContent = content != null ? content : "";
-        LOGGER.debug("[CodeViewerModel] setRightContent called: {} chars", safeContent.length());
-        if (safeContent.isEmpty()) {
-            LOGGER.warn("[CodeViewerModel] Setting empty right content");
-        }
-        rightContent.setValue(safeContent);
-    }
-
-    public void setUnifiedDiffContent(String content) {
-        String safeContent = content != null ? content : "";
-        LOGGER.debug("[CodeViewerModel] setUnifiedDiffContent called: {} chars", safeContent.length());
-        if (safeContent.isEmpty()) {
-            LOGGER.warn("[CodeViewerModel] Setting empty unified diff content");
-        }
-        unifiedDiffContent.setValue(safeContent);
+        String safeLeft = left != null ? left : "";
+        String safeRight = right != null ? right : "";
+        String safeUnified = unified != null ? unified : "";
+        leftContent.setValue(safeLeft);
+        rightContent.setValue(safeRight);
+        unifiedDiffContent.setValue(safeUnified);
+        fileContent.setValue(new FileContent(safeLeft, safeRight, safeUnified));
     }
 }
 

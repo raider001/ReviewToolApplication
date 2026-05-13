@@ -183,15 +183,15 @@ public class FileDiffManager {
                 logger.info("Loaded content - Left: {} chars, Right: {} chars, Diff: {} chars",
                     leftContent.length(), rightContent.length(), unifiedDiff.length());
 
-                codeViewerModel.setLeftContent(leftContent);
-                codeViewerModel.setRightContent(rightContent);
-                codeViewerModel.setUnifiedDiffContent(unifiedDiff);
+                codeViewerModel.setFileContent(leftContent, rightContent, unifiedDiff);
             })
             .exceptionally(error -> {
                 logger.error("Failed to load diff for file {}: {}", file.getPath(), error.getMessage());
-                codeViewerModel.setLeftContent("// Error loading content: " + error.getMessage());
-                codeViewerModel.setRightContent("// Error loading content: " + error.getMessage());
-                codeViewerModel.setUnifiedDiffContent("// Error loading diff: " + error.getMessage());
+                codeViewerModel.setFileContent(
+                    "// Error loading content: " + error.getMessage(),
+                    "// Error loading content: " + error.getMessage(),
+                    "// Error loading diff: " + error.getMessage()
+                );
                 return null;
             });
     }
