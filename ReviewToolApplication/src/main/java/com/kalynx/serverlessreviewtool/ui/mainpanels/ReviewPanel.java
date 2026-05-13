@@ -584,23 +584,26 @@ public class ReviewPanel extends ThemedPanel {
         SwingUtilities.invokeLater(() -> {
             Window owner = SwingUtilities.getWindowAncestor(this);
             if (owner == null || !owner.isDisplayable()) {
+                LOGGER.warn("Cannot show update toast: owner window unavailable");
                 return;
             }
 
             if (updateToastWindow != null) {
                 updateToastWindow.dispose();
+                updateToastWindow = null;
             }
 
             JWindow toast = new JWindow(owner);
+
             JLabel label = new JLabel(message);
             label.setForeground(Color.WHITE);
+            label.setFont(label.getFont().deriveFont(13f));
 
             javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.BorderLayout());
-            panel.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
-            panel.setBackground(new Color(32, 32, 32, 230));
+            panel.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
+            panel.setBackground(new Color(45, 45, 45));
             panel.add(label, java.awt.BorderLayout.CENTER);
 
-            toast.setBackground(new Color(0, 0, 0, 0));
             toast.setContentPane(panel);
             toast.pack();
 
@@ -611,9 +614,9 @@ public class ReviewPanel extends ThemedPanel {
                 panelPoint = owner.getLocationOnScreen();
             }
             toast.setLocation(panelPoint.x + 16, panelPoint.y + 16);
-            toast.setAlwaysOnTop(false);
-            toast.setVisible(true);
+            toast.setAlwaysOnTop(true);
             setWindowOpacity(toast, 0.95f);
+            toast.setVisible(true);
 
             int totalDurationMs = 5000;
             int fadeDurationMs = 1000;
@@ -641,6 +644,7 @@ public class ReviewPanel extends ThemedPanel {
             timer.start();
 
             updateToastWindow = toast;
+            LOGGER.info("Showing update toast: {}", message);
         });
     }
 
