@@ -2,6 +2,7 @@ package com.kalynx.serverlessreviewtool.configuration;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * AppSettings - POJO representing all application settings
@@ -9,43 +10,39 @@ import java.util.List;
  */
 public class AppSettings {
 
-    // Window settings
     private WindowSettings window;
-
-    // Notification service settings
     private String notificationServiceUrl;
-
-    // Repository configurations
     private List<RepositoryConfig> repositories;
-
-    // Polling settings
-    private int pollingIntervalMinutes;
-    private boolean enablePolling;
-
-    // Theme settings
-    private String theme; // "Dark" or "Light"
-
-    // User identity settings
-    private String userName;
-    private String userEmail;
+    private String theme;
     private String loggedInUserName;
     private String loggedInUserEmail;
+    private List<ReviewTabConfig> reviewTabs;
 
     public AppSettings() {
-        // Default values
         this.window = new WindowSettings();
         this.notificationServiceUrl = "";
         this.repositories = new ArrayList<>();
-        this.pollingIntervalMinutes = 15;
-        this.enablePolling = true;
         this.theme = "Dark";
-        this.userName = "";
-        this.userEmail = "";
         this.loggedInUserName = "";
         this.loggedInUserEmail = "";
+        this.reviewTabs = createDefaultTabs();
     }
 
-    // Getters and Setters
+    /**
+     * Returns the default tab configurations used when no tabs are stored.
+     *
+     * @return ordered list of default review tabs
+     */
+    public static List<ReviewTabConfig> createDefaultTabs() {
+        List<ReviewTabConfig> tabs = new ArrayList<>();
+        List<String> activeStatuses = List.of("OPEN", "IN_PROGRESS", "CHANGES_REQUESTED");
+        tabs.add(new ReviewTabConfig(UUID.randomUUID().toString(), "My Reviews",   "", "", new ArrayList<>(), new ArrayList<>(), new ArrayList<>(activeStatuses), "MINE"));
+        tabs.add(new ReviewTabConfig(UUID.randomUUID().toString(), "Open Reviews", "", "", new ArrayList<>(), new ArrayList<>(), new ArrayList<>(activeStatuses), "OTHERS"));
+        tabs.add(new ReviewTabConfig(UUID.randomUUID().toString(), "Completed",    "", "", new ArrayList<>(), new ArrayList<>(), List.of("COMPLETED"),             "ANY"));
+        tabs.add(new ReviewTabConfig(UUID.randomUUID().toString(), "All Reviews",  "", "", new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),                "ANY"));
+        return tabs;
+    }
+
     public WindowSettings getWindow() { return window; }
     public void setWindow(WindowSettings window) { this.window = window; }
 
@@ -55,26 +52,23 @@ public class AppSettings {
     public List<RepositoryConfig> getRepositories() { return repositories; }
     public void setRepositories(List<RepositoryConfig> repositories) { this.repositories = repositories; }
 
-    public int getPollingIntervalMinutes() { return pollingIntervalMinutes; }
-    public void setPollingIntervalMinutes(int minutes) { this.pollingIntervalMinutes = minutes; }
-
-    public boolean isEnablePolling() { return enablePolling; }
-    public void setEnablePolling(boolean enable) { this.enablePolling = enable; }
-
     public String getTheme() { return theme; }
     public void setTheme(String theme) { this.theme = theme; }
 
-    public String getUserName() { return userName; }
-    public void setUserName(String userName) { this.userName = userName; }
-
-    public String getUserEmail() { return userEmail; }
-    public void setUserEmail(String userEmail) { this.userEmail = userEmail; }
 
     public String getLoggedInUserName() { return loggedInUserName; }
     public void setLoggedInUserName(String loggedInUserName) { this.loggedInUserName = loggedInUserName; }
 
     public String getLoggedInUserEmail() { return loggedInUserEmail; }
     public void setLoggedInUserEmail(String loggedInUserEmail) { this.loggedInUserEmail = loggedInUserEmail; }
+
+    public List<ReviewTabConfig> getReviewTabs() {
+        if (reviewTabs == null || reviewTabs.isEmpty()) {
+            reviewTabs = createDefaultTabs();
+        }
+        return reviewTabs;
+    }
+    public void setReviewTabs(List<ReviewTabConfig> reviewTabs) { this.reviewTabs = reviewTabs; }
 
     /**
      * Window settings - size and position
@@ -84,7 +78,6 @@ public class AppSettings {
         private int defaultHeight;
 
         public WindowSettings() {
-            // Default window size
             this.defaultWidth = 1000;
             this.defaultHeight = 700;
         }
@@ -102,16 +95,10 @@ public class AppSettings {
     public static class RepositoryConfig {
         private String name;
         private String url;
-        private int pollingIntervalMinutes;
 
-        public RepositoryConfig() {
-            // Default constructor for Gson
-        }
-
-        public RepositoryConfig(String name, String url, int pollingIntervalMinutes) {
+        public RepositoryConfig(String name, String url) {
             this.name = name;
             this.url = url;
-            this.pollingIntervalMinutes = pollingIntervalMinutes;
         }
 
         public String getName() { return name; }
@@ -120,13 +107,59 @@ public class AppSettings {
         public String getUrl() { return url; }
         public void setUrl(String url) { this.url = url; }
 
-        public int getPollingIntervalMinutes() { return pollingIntervalMinutes; }
-        public void setPollingIntervalMinutes(int minutes) { this.pollingIntervalMinutes = minutes; }
 
         @Override
-        public String toString() {
-            return name + " (" + url + ")";
+        public String toString() { return name + " (" + url + ")"; }
+    }
+
+    /**
+     * Review tab configuration — defines what reviews a tab shows.
+     * <p>
+     * {@code statusFilters} values (per element): {@code "ACTIVE"}, {@code "COMPLETED"}, {@code "CANCELLED"}.
+     * An empty list means "any status".<br>
+     * {@code repositories} supports wildcard patterns, e.g. {@code "*bob*"}.<br>
+     * {@code involvementFilter} values: {@code "ANY"}, {@code "MINE"}, {@code "OTHERS"}
+     */
+    public static class ReviewTabConfig {
+        private String id;
+        private String name;
+        private final String titleContains;
+        private final String authorContains;
+        private final List<String> reviewerPatterns;
+        private List<String> repositories;
+        private final List<String> statusFilters;
+        private final String involvementFilter;
+
+        public ReviewTabConfig(String id, String name, String titleContains, String authorContains,
+                               List<String> reviewerPatterns, List<String> repositories,
+                               List<String> statusFilters, String involvementFilter) {
+            this.id = id;
+            this.name = name;
+            this.titleContains = titleContains != null ? titleContains : "";
+            this.authorContains = authorContains != null ? authorContains : "";
+            this.reviewerPatterns = reviewerPatterns != null ? new ArrayList<>(reviewerPatterns) : new ArrayList<>();
+            this.repositories = repositories != null ? new ArrayList<>(repositories) : new ArrayList<>();
+            this.statusFilters = statusFilters != null ? new ArrayList<>(statusFilters) : new ArrayList<>();
+            this.involvementFilter = involvementFilter != null ? involvementFilter : "ANY";
         }
+
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+
+        public String getTitleContains() { return titleContains; }
+
+        public String getAuthorContains() { return authorContains; }
+
+        public List<String> getReviewerPatterns() { return reviewerPatterns; }
+
+        public List<String> getRepositories() { return repositories != null ? repositories : new ArrayList<>(); }
+        public void setRepositories(List<String> repositories) { this.repositories = repositories; }
+
+        public List<String> getStatusFilters() { return statusFilters; }
+
+        public String getInvolvementFilter() { return involvementFilter; }
     }
 }
-

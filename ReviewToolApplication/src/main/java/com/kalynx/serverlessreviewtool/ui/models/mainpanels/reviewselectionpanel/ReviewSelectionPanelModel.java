@@ -1,10 +1,13 @@
 package com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewselectionpanel;
 
+import com.kalynx.serverlessreviewtool.configuration.AppSettings;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
+import com.kalynx.serverlessreviewtool.models.ReviewStatus;
 import com.kalynx.serverlessreviewtool.swingextensions.ComponentModel;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public class ReviewSelectionPanelModel {
 
@@ -133,18 +136,75 @@ public class ReviewSelectionPanelModel {
     }
 
     private boolean isCompleted(ReviewItem review) {
-        return review.getStatus() == com.kalynx.serverlessreviewtool.models.ReviewStatus.COMPLETED;
+        return review.getStatus() == ReviewStatus.COMPLETED;
     }
 
-    public void selectReview(ReviewItem review) {
-        selectedReview.setValue(review);
+    /**
+     * Returns all reviews from {@code allReviews} that match the given tab filter configuration.
+     *
+     * @param tab the tab's filter configuration
+     * @return filtered list of review items
+     */
+    public List<ReviewItem> filterForTab(AppSettings.ReviewTabConfig tab) {
+        List<ReviewItem> all = allReviews.getValue();
+        if (all == null || all.isEmpty()) return new ArrayList<>();
+
+        String titleContains      = tab.getTitleContains();
+        String authorContains     = tab.getAuthorContains();
+        List<String> reviewerPatterns = tab.getReviewerPatterns();
+        List<String> repoPatterns     = tab.getRepositories();
+        List<String> statusFilters    = tab.getStatusFilters();
+
+        return all.stream()
+            .filter(r -> titleContains.isEmpty()  || r.getTitle().toLowerCase().contains(titleContains.toLowerCase()))
+            .filter(r -> authorContains.isEmpty() || r.getAuthor().toLowerCase().contains(authorContains.toLowerCase()))
+            .filter(r -> matchesReviewerPatterns(r, reviewerPatterns))
+            .filter(r -> matchesRepoPatterns(r, repoPatterns))
+            .filter(r -> matchesStatusFilters(r, statusFilters))
+            .filter(r -> matchesInvolvementFilter(r, tab.getInvolvementFilter()))
+            .toList();
     }
 
-    public void setLoadingState(boolean loading) {
-        isLoading.setValue(loading);
-        if (loading) {
-            errorMessage.setValue("");
-        }
+    private boolean matchesReviewerPatterns(ReviewItem r, List<String> patterns) {
+        if (patterns == null || patterns.isEmpty()) return true;
+        return r.getReviewers().stream()
+            .anyMatch(reviewer -> patterns.stream().anyMatch(p -> matchesWildcard(reviewer, p)));
+    }
+
+    private boolean matchesRepoPatterns(ReviewItem r, List<String> patterns) {
+        if (patterns == null || patterns.isEmpty()) return true;
+        return r.getRepositories().stream()
+            .anyMatch(repo -> patterns.stream().anyMatch(p -> matchesWildcard(repo, p)));
+    }
+
+    private boolean matchesWildcard(String text, String pattern) {
+        String regex = "(?i)" + Pattern.quote(pattern).replace("\\*", ".*").replace("\\?", ".");
+        return text.matches(regex);
+    }
+
+    private boolean matchesStatusFilters(ReviewItem r, List<String> filters) {
+        if (filters == null || filters.isEmpty()) return true;
+        return filters.stream().anyMatch(f -> matchesSingleStatus(r, f));
+    }
+
+    private boolean matchesSingleStatus(ReviewItem r, String filter) {
+        return switch (filter) {
+            case "OPEN"               -> r.getStatus() == ReviewStatus.OPEN;
+            case "IN_PROGRESS"        -> r.getStatus() == ReviewStatus.IN_PROGRESS;
+            case "CHANGES_REQUESTED"  -> r.getStatus() == ReviewStatus.CHANGES_REQUESTED;
+            case "COMPLETED"          -> r.getStatus() == ReviewStatus.COMPLETED;
+            case "CANCELLED"          -> r.getStatus() == ReviewStatus.CANCELLED;
+            case "ACTIVE"             -> r.getStatus() != ReviewStatus.COMPLETED && r.getStatus() != ReviewStatus.CANCELLED;
+            default                   -> true;
+        };
+    }
+
+    private boolean matchesInvolvementFilter(ReviewItem r, String filter) {
+        return switch (filter) {
+            case "MINE"   ->  isMyReview(r);
+            case "OTHERS" -> !isMyReview(r);
+            default       -> true;
+        };
     }
 
     public void setError(String error) {
@@ -152,33 +212,4 @@ public class ReviewSelectionPanelModel {
         isLoading.setValue(false);
     }
 
-    public boolean hasReviews() {
-        return !allReviews.getValue().isEmpty();
-    }
-
-    public int getMyReviewsCount() {
-        return myReviews.getValue().size();
-    }
-
-    public int getOpenReviewsCount() {
-        return openReviews.getValue().size();
-    }
-
-    public int getCompletedReviewsCount() {
-        return completedReviews.getValue().size();
-    }
-
-    public void setSelectedTab(int index) {
-        selectedTabIndex.setValue(index);
-    }
-
-    public List<ReviewItem> getCurrentTabReviews() {
-        return switch (selectedTabIndex.getValue()) {
-            case 0 -> myReviews.getValue();
-            case 1 -> openReviews.getValue();
-            case 2 -> completedReviews.getValue();
-            case 3 -> allReviewsFiltered.getValue();
-            default -> new ArrayList<>();
-        };
-    }
 }

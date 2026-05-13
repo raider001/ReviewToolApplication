@@ -18,7 +18,7 @@ public class ThemedConfirmDialog extends JDialog {
     
     private transient final ThemeManager themeManager = ThemeManager.getInstance();
     private boolean confirmed = false;
-    
+
     public ThemedConfirmDialog(Window owner, String title, String message, boolean messageOnly) {
         super(owner, ModalityType.APPLICATION_MODAL);
         setUndecorated(true);

@@ -7,6 +7,7 @@ import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewItemManager;
+import com.kalynx.serverlessreviewtool.managers.UserManager;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.QuickButton;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedFrame;
@@ -41,6 +42,7 @@ public class MainFrame extends ThemedFrame {
     private final ReviewFormModels reviewFormModels;
     private final ReviewSelectionPanelModel reviewSelectionPanelModel;
     private final ReviewPanelModel reviewPanelModel;
+    private final UserManager userManager;
     private final Git git;
 
     private LoginPanel loginPanel;
@@ -63,6 +65,7 @@ public class MainFrame extends ThemedFrame {
             ReviewFormModels reviewFormModels,
             ReviewSelectionPanelModel reviewSelectionPanelModel,
             ReviewPanelModel reviewPanelModel,
+            UserManager userManager,
             Git git) {
         super("Serverless Review Tool",
               settingsManager.getSettings().getWindow().getDefaultWidth(),
@@ -75,6 +78,7 @@ public class MainFrame extends ThemedFrame {
         this.reviewFormModels = reviewFormModels;
         this.reviewSelectionPanelModel = reviewSelectionPanelModel;
         this.reviewPanelModel = reviewPanelModel;
+        this.userManager = userManager;
         this.git = git;
         setApplicationIcon(AppIcon.createIconImages());
         initializePanels();
@@ -135,7 +139,7 @@ public class MainFrame extends ThemedFrame {
         loginPanel = new LoginPanel(settingsManager, pluginManager);
         loginPanel.setOnLoginSuccess(this::showReviewPanel);
 
-        reviewSelectionPanel = new ReviewSelectionPanel(repositoryManager, reviewItemManager, reviewSelectionPanelModel, reviewFormModels, git);
+        reviewSelectionPanel = new ReviewSelectionPanel(repositoryManager, reviewItemManager, reviewSelectionPanelModel, reviewFormModels, git, settingsManager, userManager);
         reviewPanel = new ReviewPanel(settingsManager, reviewContextManager, repositoryManager, reviewFormModels, reviewPanelModel, git, pluginManager);
         swipeActionPanel = new SwipeActionPanel(reviewPanel);
 

@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -28,6 +29,7 @@ public class SettingsManager {
 
     private final AppSettings currentSettings;
     private final Set<Consumer<String>> userNameListeners = new HashSet<>();
+    private final Set<Runnable> reviewTabsListeners = new HashSet<>();
 
     public SettingsManager() {
         this.gson = new GsonBuilder().setPrettyPrinting().create();
@@ -157,35 +159,37 @@ public class SettingsManager {
 
     public String getCurrentUserName() {
         String loggedInUserName = getLoggedInUserName();
-        if (!loggedInUserName.isEmpty()) {
-            return loggedInUserName;
-        }
-
-        String manualName = currentSettings.getUserName();
-        if (manualName != null && !manualName.isEmpty()) {
-            return manualName;
-        }
-
-        return "Unknown User";
+        return !loggedInUserName.isEmpty() ? loggedInUserName : "Unknown User";
     }
 
     public String getCurrentUserEmail() {
-        String loggedInUserEmail = getLoggedInUserEmail();
-        if (!loggedInUserEmail.isEmpty()) {
-            return loggedInUserEmail;
-        }
-
-        String manualEmail = currentSettings.getUserEmail();
-        if (manualEmail != null && !manualEmail.isEmpty()) {
-            return manualEmail;
-        }
-
-        return "";
+        return getLoggedInUserEmail();
     }
 
     public void addUserNameListener(Consumer<String> listener) {
         userNameListeners.add(listener);
         listener.accept(getCurrentUserName());
+    }
+
+    /**
+     * Replaces all review tabs with the supplied list and persists immediately.
+     * All registered review-tabs listeners are notified on the calling thread.
+     *
+     * @param tabs the new tab configurations; must not be {@code null}
+     */
+    public void updateReviewTabs(List<AppSettings.ReviewTabConfig> tabs) {
+        currentSettings.setReviewTabs(new java.util.ArrayList<>(tabs));
+        saveSettings();
+        reviewTabsListeners.forEach(Runnable::run);
+    }
+
+    /**
+     * Registers a listener that is called whenever {@link #updateReviewTabs} is invoked.
+     *
+     * @param listener the callback to add
+     */
+    public void addReviewTabsListener(Runnable listener) {
+        reviewTabsListeners.add(listener);
     }
 
     private void notifyUserNameListeners() {
