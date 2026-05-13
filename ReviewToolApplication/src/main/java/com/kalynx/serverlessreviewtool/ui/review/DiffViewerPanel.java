@@ -20,8 +20,11 @@ import javax.swing.*;
 import javax.swing.text.*;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -140,17 +143,19 @@ public class DiffViewerPanel extends ThemedPanel {
     }
 
     private void updateUnifiedContent() {
-        String content = codeViewerModel.unifiedDiffContent.getValue();
-        if (content != null && unifiedPane != null) {
-            if (content.isEmpty()) {
+        String unifiedDiff = codeViewerModel.unifiedDiffContent.getValue();
+        if (unifiedDiff != null && unifiedPane != null) {
+            if (unifiedDiff.isEmpty()) {
                 LOGGER.warn("[DiffViewerPanel] Unified content is empty");
             } else {
-                LOGGER.debug("[DiffViewerPanel] Updating unified content with highlighting: {} chars", content.length());
+                LOGGER.debug("[DiffViewerPanel] Updating unified content with highlighting: {} chars", unifiedDiff.length());
             }
 
             SwingUtilities.invokeLater(() -> {
                 if (currentMode == DiffViewMode.UNIFIED) {
-                    highlightUnifiedDiff(unifiedPane, content);
+                    String afterContent = codeViewerModel.rightContent.getValue();
+                    if (afterContent == null) afterContent = "";
+                    highlightUnifiedDiff(unifiedPane, afterContent, unifiedDiff);
                     applyPendingTopLineRestore();
                 }
             });
@@ -163,9 +168,11 @@ public class DiffViewerPanel extends ThemedPanel {
 
         leftScrollPane = new AnnotatedScrollPane(leftPane);
         leftScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        leftScrollPane.setReferencePaneForAnnotations(leftPane);
 
         rightScrollPane = new AnnotatedScrollPane(rightPane);
         rightScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        rightScrollPane.setReferencePaneForAnnotations(rightPane);
 
         synchronizeScrollPanes(leftScrollPane, rightScrollPane);
 
@@ -180,6 +187,7 @@ public class DiffViewerPanel extends ThemedPanel {
 
         unifiedScrollPane = new AnnotatedScrollPane(unifiedPane);
         unifiedScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        unifiedScrollPane.setReferencePaneForAnnotations(unifiedPane);
 
         contentPanel.add(unifiedScrollPane, DiffViewMode.UNIFIED.name());
     }
@@ -263,15 +271,17 @@ public class DiffViewerPanel extends ThemedPanel {
     }
 
     private void showUnifiedDiff(ReviewFile file) {
-        // Get unified diff from model
+        String afterContent = codeViewerModel.rightContent.getValue();
         String unifiedDiff = codeViewerModel.unifiedDiffContent.getValue();
 
-        // Fall back to placeholder if not available
-        if (unifiedDiff == null || unifiedDiff.isEmpty()) {
-            unifiedDiff = "// Unified diff not available for " + file.getPath();
+        if (afterContent == null || afterContent.isEmpty()) {
+            afterContent = "// Content not available for " + file.getPath();
+        }
+        if (unifiedDiff == null) {
+            unifiedDiff = "";
         }
 
-        highlightUnifiedDiff(unifiedPane, unifiedDiff);
+        highlightUnifiedDiff(unifiedPane, afterContent, unifiedDiff);
     }
 
     private void highlightDiffWithInlineChanges(LineNumberedTextPane leftPane, LineNumberedTextPane rightPane,
@@ -302,14 +312,6 @@ public class DiffViewerPanel extends ThemedPanel {
         StyleConstants.setForeground(addedStyle, theme.getForegroundColor());
         StyleConstants.setBackground(addedStyle, theme.getAddedLineColor());
 
-        Style modifiedStyle = leftTextPane.addStyle("modified", null);
-        StyleConstants.setForeground(modifiedStyle, theme.getForegroundColor());
-        StyleConstants.setBackground(modifiedStyle, theme.getModifiedLineColor());
-
-        Style modifiedStyleRight = rightTextPane.addStyle("modifiedRight", null);
-        StyleConstants.setForeground(modifiedStyleRight, theme.getForegroundColor());
-        StyleConstants.setBackground(modifiedStyleRight, theme.getModifiedLineColor());
-
         Style defaultStyle = leftTextPane.addStyle("default", null);
         StyleConstants.setForeground(defaultStyle, theme.getForegroundColor());
 
@@ -338,48 +340,10 @@ public class DiffViewerPanel extends ThemedPanel {
             int leftLineLength = leftLine.length() + 1;
             int rightLineLength = rightLine.length() + 1;
 
-            // Check if line is empty placeholder or modified
             boolean leftIsEmpty = aligned.leftEmptyLines.contains(i);
             boolean rightIsEmpty = aligned.rightEmptyLines.contains(i);
-            boolean isModified = aligned.modifiedLines.contains(i);
 
-            // Apply appropriate styling
-            if (isModified) {
-                // Modified line - both sides exist, show with modified color
-                if (leftOffset + leftLineLength <= leftDoc.getLength()) {
-                    leftDoc.setCharacterAttributes(leftOffset, leftLineLength, defaultStyle, true);
-                }
-                if (rightOffset + rightLineLength <= rightDoc.getLength()) {
-                    rightDoc.setCharacterAttributes(rightOffset, rightLineLength, defaultStyleRight, true);
-                }
-
-                // Find and highlight inline differences with modified color
-                int commonPrefix = 0;
-                int minLen = Math.min(leftLine.length(), rightLine.length());
-                while (commonPrefix < minLen && leftLine.charAt(commonPrefix) == rightLine.charAt(commonPrefix)) {
-                    commonPrefix++;
-                }
-
-                int commonSuffix = 0;
-                while (commonSuffix < minLen - commonPrefix &&
-                       leftLine.charAt(leftLine.length() - 1 - commonSuffix) ==
-                       rightLine.charAt(rightLine.length() - 1 - commonSuffix)) {
-                    commonSuffix++;
-                }
-
-                // Highlight the differences on left
-                if (commonPrefix < leftLine.length() - commonSuffix) {
-                    int diffLength = leftLine.length() - commonPrefix - commonSuffix;
-                    leftDoc.setCharacterAttributes(leftOffset + commonPrefix, diffLength, modifiedStyle, true);
-                }
-
-                // Highlight the differences on right
-                if (commonPrefix < rightLine.length() - commonSuffix) {
-                    int diffLength = rightLine.length() - commonPrefix - commonSuffix;
-                    rightDoc.setCharacterAttributes(rightOffset + commonPrefix, diffLength, modifiedStyle, true);
-                }
-            } else if (leftIsEmpty) {
-                // Empty line on left (line was added on right)
+            if (leftIsEmpty) {
                 if (leftOffset + leftLineLength <= leftDoc.getLength()) {
                     leftDoc.setCharacterAttributes(leftOffset, leftLineLength, emptyLineStyle, true);
                 }
@@ -387,47 +351,13 @@ public class DiffViewerPanel extends ThemedPanel {
                     rightDoc.setCharacterAttributes(rightOffset, rightLineLength, addedStyle, true);
                 }
             } else if (rightIsEmpty) {
-                // Empty line on right (line was removed from left)
                 if (leftOffset + leftLineLength <= leftDoc.getLength()) {
                     leftDoc.setCharacterAttributes(leftOffset, leftLineLength, removedStyle, true);
                 }
                 if (rightOffset + rightLineLength <= rightDoc.getLength()) {
                     rightDoc.setCharacterAttributes(rightOffset, rightLineLength, emptyLineStyleRight, true);
                 }
-            } else if (!leftLine.equals(rightLine)) {
-                // Lines differ - highlight the differences
-                if (leftOffset + leftLineLength <= leftDoc.getLength()) {
-                    leftDoc.setCharacterAttributes(leftOffset, leftLineLength, defaultStyle, true);
-                }
-                if (rightOffset + rightLineLength <= rightDoc.getLength()) {
-                    rightDoc.setCharacterAttributes(rightOffset, rightLineLength, defaultStyleRight, true);
-                }
-
-                // Find and highlight inline differences
-                int commonPrefix = 0;
-                int minLen = Math.min(leftLine.length(), rightLine.length());
-                while (commonPrefix < minLen && leftLine.charAt(commonPrefix) == rightLine.charAt(commonPrefix)) {
-                    commonPrefix++;
-                }
-
-                int commonSuffix = 0;
-                while (commonSuffix < minLen - commonPrefix &&
-                       leftLine.charAt(leftLine.length() - 1 - commonSuffix) ==
-                       rightLine.charAt(rightLine.length() - 1 - commonSuffix)) {
-                    commonSuffix++;
-                }
-
-                if (commonPrefix < leftLine.length() - commonSuffix) {
-                    int diffLength = leftLine.length() - commonPrefix - commonSuffix;
-                    leftDoc.setCharacterAttributes(leftOffset + commonPrefix, diffLength, removedStyle, true);
-                }
-
-                if (commonPrefix < rightLine.length() - commonSuffix) {
-                    int diffLength = rightLine.length() - commonPrefix - commonSuffix;
-                    rightDoc.setCharacterAttributes(rightOffset + commonPrefix, diffLength, addedStyle, true);
-                }
             } else {
-                // Lines are the same - default style
                 if (leftOffset + leftLineLength <= leftDoc.getLength()) {
                     leftDoc.setCharacterAttributes(leftOffset, leftLineLength, defaultStyle, true);
                 }
@@ -450,14 +380,13 @@ public class DiffViewerPanel extends ThemedPanel {
         int totalLines = aligned.leftContent.split("\n", -1).length;
         Set<Integer> leftRemoved = toOneBased(aligned.rightEmptyLines);
         Set<Integer> rightAdded = toOneBased(aligned.leftEmptyLines);
-        Set<Integer> modified = toOneBased(aligned.modifiedLines);
 
         if (leftScrollPane != null) {
-            leftScrollPane.setChangeAnnotations(totalLines, Set.of(), leftRemoved, modified);
+            leftScrollPane.setChangeAnnotations(totalLines, Set.of(), leftRemoved, Set.of());
             leftScrollPane.setCommentAnnotations(currentComments);
         }
         if (rightScrollPane != null) {
-            rightScrollPane.setChangeAnnotations(totalLines, rightAdded, Set.of(), modified);
+            rightScrollPane.setChangeAnnotations(totalLines, rightAdded, Set.of(), Set.of());
             rightScrollPane.setCommentAnnotations(currentComments);
         }
     }
@@ -467,195 +396,124 @@ public class DiffViewerPanel extends ThemedPanel {
     }
 
     private AlignedContent alignContentUsingDiff(String beforeContent, String afterContent, String unifiedDiff) {
-        // If no valid diff or files are identical, don't align
         if (unifiedDiff == null || unifiedDiff.isEmpty() || unifiedDiff.startsWith("//")) {
             LOGGER.debug("[DiffViewer] No valid unified diff, returning unaligned content");
             return new AlignedContent(beforeContent, afterContent, new java.util.HashSet<>(), new java.util.HashSet<>(), new java.util.HashSet<>());
         }
 
-        // Check if diff shows no changes
-        boolean hasChanges = false;
-        for (String line : unifiedDiff.split("\n")) {
-            if (line.startsWith("+") && !line.startsWith("+++")) {
-                hasChanges = true;
-                break;
-            }
-            if (line.startsWith("-") && !line.startsWith("---")) {
-                hasChanges = true;
-                break;
-            }
-        }
-
-        if (!hasChanges) {
-            LOGGER.debug("[DiffViewer] Diff shows no changes, returning unaligned content");
-            return new AlignedContent(beforeContent, afterContent, new java.util.HashSet<>(), new java.util.HashSet<>(), new java.util.HashSet<>());
-        }
-
-        LOGGER.debug("[DiffViewer] Aligning content using diff with modification detection");
-
         String[] beforeLines = beforeContent.split("\n", -1);
         String[] afterLines = afterContent.split("\n", -1);
-        String[] diffLines = unifiedDiff.split("\n");
 
         java.util.List<String> alignedLeft = new java.util.ArrayList<>();
         java.util.List<String> alignedRight = new java.util.ArrayList<>();
         java.util.Set<Integer> leftEmpty = new java.util.HashSet<>();
         java.util.Set<Integer> rightEmpty = new java.util.HashSet<>();
-        java.util.Set<Integer> modifiedLines = new java.util.HashSet<>();
 
         int beforeIdx = 0;
         int afterIdx = 0;
-        int currentLine = 0;
+        int rowIdx = 0;
 
-        // Pre-scan to identify modification patterns (consecutive - and + lines)
-        java.util.List<DiffLine> parsedDiff = new java.util.ArrayList<>();
-        for (String diffLine : diffLines) {
-            if (diffLine.startsWith("@@")) {
-                try {
-                    String header = diffLine.substring(3, diffLine.indexOf("@@", 3)).trim();
-                    String[] parts = header.split(" ");
-                    String beforePart = parts[0].substring(1);
-                    int hunkBeforeStart = beforePart.contains(",") ?
-                        Integer.parseInt(beforePart.split(",")[0]) - 1 :
-                        Integer.parseInt(beforePart) - 1;
-                    String afterPart = parts[1].substring(1);
-                    int hunkAfterStart = afterPart.contains(",") ?
-                        Integer.parseInt(afterPart.split(",")[0]) - 1 :
-                        Integer.parseInt(afterPart) - 1;
-
-                    while (beforeIdx < hunkBeforeStart && afterIdx < hunkAfterStart) {
-                        if (beforeIdx < beforeLines.length && afterIdx < afterLines.length) {
-                            alignedLeft.add(beforeLines[beforeIdx]);
-                            alignedRight.add(afterLines[afterIdx]);
-                            beforeIdx++;
-                            afterIdx++;
-                            currentLine++;
-                        } else {
-                            break;
-                        }
-                    }
-                } catch (Exception e) {
-                    LOGGER.warn("[DiffViewer] Failed to parse hunk header: {}", diffLine, e);
-                }
-                parsedDiff.add(new DiffLine(DiffLineType.HUNK, diffLine));
-            } else if (diffLine.startsWith("---") || diffLine.startsWith("+++") || diffLine.startsWith("diff ") || diffLine.startsWith("index ")) {
-                parsedDiff.add(new DiffLine(DiffLineType.HEADER, diffLine));
-            } else if (diffLine.startsWith("-")) {
-                parsedDiff.add(new DiffLine(DiffLineType.REMOVED, diffLine.length() > 1 ? diffLine.substring(1) : ""));
-            } else if (diffLine.startsWith("+")) {
-                parsedDiff.add(new DiffLine(DiffLineType.ADDED, diffLine.length() > 1 ? diffLine.substring(1) : ""));
-            } else if (diffLine.startsWith(" ")) {
-                parsedDiff.add(new DiffLine(DiffLineType.CONTEXT, diffLine.length() > 1 ? diffLine.substring(1) : ""));
-            }
-        }
-
-        // Process diff lines, detecting modifications (consecutive - and +)
-        for (int i = 0; i < parsedDiff.size(); i++) {
-            DiffLine current = parsedDiff.get(i);
-
-            if (current.type == DiffLineType.HEADER || current.type == DiffLineType.HUNK) {
+        for (String diffLine : unifiedDiff.split("\n")) {
+            if (diffLine.startsWith("diff ") || diffLine.startsWith("index ")
+                    || diffLine.startsWith("---") || diffLine.startsWith("+++")
+                    || diffLine.startsWith("\\")) {
                 continue;
             }
 
-            if (current.type == DiffLineType.REMOVED) {
-                // Check if next line is ADDED (indicates modification)
-                boolean isModification = false;
-                if (i + 1 < parsedDiff.size()) {
-                    DiffLine next = parsedDiff.get(i + 1);
-                    if (next.type == DiffLineType.ADDED) {
-                        isModification = true;
-                    }
-                }
-
-                if (isModification) {
-                    // Modified line - show both versions
-                    if (beforeIdx < beforeLines.length && afterIdx < afterLines.length) {
+            if (diffLine.startsWith("@@")) {
+                int hunkBeforeStart = parseHunkOldStart(diffLine);
+                int hunkAfterStart = parseHunkNewStart(diffLine);
+                if (hunkBeforeStart >= 0 && hunkAfterStart >= 0) {
+                    while (beforeIdx < hunkBeforeStart && afterIdx < hunkAfterStart
+                            && beforeIdx < beforeLines.length && afterIdx < afterLines.length) {
                         alignedLeft.add(beforeLines[beforeIdx]);
                         alignedRight.add(afterLines[afterIdx]);
-                        modifiedLines.add(currentLine);
                         beforeIdx++;
                         afterIdx++;
-                        currentLine++;
-                        i++; // Skip the next + line since we processed it
-                    }
-                } else {
-                    // Pure removal
-                    if (beforeIdx < beforeLines.length) {
-                        alignedLeft.add(beforeLines[beforeIdx]);
-                        alignedRight.add("");
-                        rightEmpty.add(currentLine);
-                        beforeIdx++;
-                        currentLine++;
+                        rowIdx++;
                     }
                 }
-            } else if (current.type == DiffLineType.ADDED) {
-                // Pure addition (not part of a modification)
+            } else if (diffLine.startsWith("-")) {
+                if (beforeIdx < beforeLines.length) {
+                    alignedLeft.add(beforeLines[beforeIdx]);
+                    alignedRight.add("");
+                    rightEmpty.add(rowIdx);
+                    beforeIdx++;
+                    rowIdx++;
+                }
+            } else if (diffLine.startsWith("+")) {
                 if (afterIdx < afterLines.length) {
                     alignedLeft.add("");
                     alignedRight.add(afterLines[afterIdx]);
-                    leftEmpty.add(currentLine);
+                    leftEmpty.add(rowIdx);
                     afterIdx++;
-                    currentLine++;
+                    rowIdx++;
                 }
-            } else if (current.type == DiffLineType.CONTEXT) {
-                // Unchanged line
+            } else if (diffLine.startsWith(" ")) {
                 if (beforeIdx < beforeLines.length && afterIdx < afterLines.length) {
                     alignedLeft.add(beforeLines[beforeIdx]);
                     alignedRight.add(afterLines[afterIdx]);
                     beforeIdx++;
                     afterIdx++;
-                    currentLine++;
+                    rowIdx++;
                 }
             }
         }
 
-        // Add any remaining unchanged lines
         while (beforeIdx < beforeLines.length && afterIdx < afterLines.length) {
             alignedLeft.add(beforeLines[beforeIdx]);
             alignedRight.add(afterLines[afterIdx]);
             beforeIdx++;
             afterIdx++;
-            currentLine++;
+            rowIdx++;
         }
 
-        // Add any remaining removed lines
         while (beforeIdx < beforeLines.length) {
             alignedLeft.add(beforeLines[beforeIdx]);
             alignedRight.add("");
-            rightEmpty.add(currentLine);
+            rightEmpty.add(rowIdx);
             beforeIdx++;
-            currentLine++;
+            rowIdx++;
         }
 
-        // Add any remaining added lines
         while (afterIdx < afterLines.length) {
             alignedLeft.add("");
             alignedRight.add(afterLines[afterIdx]);
-            leftEmpty.add(currentLine);
+            leftEmpty.add(rowIdx);
             afterIdx++;
-            currentLine++;
+            rowIdx++;
         }
 
-        String leftAligned = String.join("\n", alignedLeft);
-        String rightAligned = String.join("\n", alignedRight);
+        LOGGER.debug("[DiffViewer] Alignment complete: {} rows, {} left empty, {} right empty",
+            alignedLeft.size(), leftEmpty.size(), rightEmpty.size());
 
-        LOGGER.debug("[DiffViewer] Alignment complete: {} lines, {} left empty, {} right empty, {} modified",
-            alignedLeft.size(), leftEmpty.size(), rightEmpty.size(), modifiedLines.size());
-
-        return new AlignedContent(leftAligned, rightAligned, leftEmpty, rightEmpty, modifiedLines);
+        return new AlignedContent(String.join("\n", alignedLeft), String.join("\n", alignedRight),
+            leftEmpty, rightEmpty, new java.util.HashSet<>());
     }
 
-    private enum DiffLineType {
-        HEADER, HUNK, ADDED, REMOVED, CONTEXT
+    private int parseHunkOldStart(String hunkHeader) {
+        try {
+            int minusIdx = hunkHeader.indexOf('-');
+            if (minusIdx < 0) return -1;
+            int end = hunkHeader.indexOf(',', minusIdx);
+            if (end < 0) end = hunkHeader.indexOf(' ', minusIdx);
+            if (end < 0) return -1;
+            return Integer.parseInt(hunkHeader.substring(minusIdx + 1, end).trim()) - 1;
+        } catch (Exception e) {
+            return -1;
+        }
     }
 
-    private static class DiffLine {
-        final DiffLineType type;
-        final String content;
-
-        DiffLine(DiffLineType type, String content) {
-            this.type = type;
-            this.content = content;
+    private int parseHunkNewStart(String hunkHeader) {
+        try {
+            int plusIdx = hunkHeader.indexOf('+');
+            if (plusIdx < 0) return -1;
+            int end = hunkHeader.indexOf(',', plusIdx);
+            if (end < 0) end = hunkHeader.indexOf(' ', plusIdx);
+            if (end < 0) return -1;
+            return Integer.parseInt(hunkHeader.substring(plusIdx + 1, end).trim()) - 1;
+        } catch (Exception e) {
+            return -1;
         }
     }
 
@@ -664,58 +522,44 @@ public class DiffViewerPanel extends ThemedPanel {
         final String rightContent;
         final java.util.Set<Integer> leftEmptyLines;
         final java.util.Set<Integer> rightEmptyLines;
-        final java.util.Set<Integer> modifiedLines;
 
         AlignedContent(String leftContent, String rightContent,
                       java.util.Set<Integer> leftEmptyLines, java.util.Set<Integer> rightEmptyLines,
-                      java.util.Set<Integer> modifiedLines) {
+                      java.util.Set<Integer> ignored) {
             this.leftContent = leftContent;
             this.rightContent = rightContent;
             this.leftEmptyLines = leftEmptyLines;
             this.rightEmptyLines = rightEmptyLines;
-            this.modifiedLines = modifiedLines;
         }
     }
 
-    private void highlightUnifiedDiff(LineNumberedTextPane pane, String unifiedDiff) {
-        // Clean the diff to remove git syntax
-        CleanedDiff cleaned = cleanUnifiedDiff(unifiedDiff);
+    private void highlightUnifiedDiff(LineNumberedTextPane pane, String afterContent, String unifiedDiff) {
+        CleanedDiff cleaned = buildFullFileDiff(afterContent, unifiedDiff);
         pane.setText(cleaned.content);
 
         Theme theme = themeManager.getCurrentTheme();
         JTextPane textPane = pane.getTextPane();
         StyledDocument doc = textPane.getStyledDocument();
 
-        // Create styles
         Style addedStyle = textPane.addStyle("added", null);
         StyleConstants.setForeground(addedStyle, theme.getForegroundColor());
         StyleConstants.setBackground(addedStyle, theme.getAddedLineColor());
 
-        Style removedStyle = textPane.addStyle("removed", null);
-        StyleConstants.setForeground(removedStyle, theme.getForegroundColor());
-        StyleConstants.setBackground(removedStyle, theme.getRemovedLineColor());
-
         Style defaultStyle = textPane.addStyle("default", null);
         StyleConstants.setForeground(defaultStyle, theme.getForegroundColor());
 
-        // Apply styles based on cleaned line types
         String[] lines = cleaned.content.split("\n", -1);
         int offset = 0;
         int lineNumber = 1;
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
-            int lineLength = line.length() + 1; // +1 for newline
+            int lineLength = line.length() + 1;
 
             if (cleaned.addedLines.contains(i)) {
                 if (offset + lineLength <= doc.getLength()) {
                     doc.setCharacterAttributes(offset, lineLength, addedStyle, true);
                 }
                 pane.markLineAdded(lineNumber);
-            } else if (cleaned.removedLines.contains(i)) {
-                if (offset + lineLength <= doc.getLength()) {
-                    doc.setCharacterAttributes(offset, lineLength, removedStyle, true);
-                }
-                pane.markLineRemoved(lineNumber);
             } else {
                 if (offset + lineLength <= doc.getLength()) {
                     doc.setCharacterAttributes(offset, lineLength, defaultStyle, true);
@@ -739,64 +583,38 @@ public class DiffViewerPanel extends ThemedPanel {
         unifiedScrollPane.setCommentAnnotations(currentComments);
     }
 
-    private CleanedDiff cleanUnifiedDiff(String unifiedDiff) {
-        String[] lines = unifiedDiff.split("\n");
-        java.util.List<String> cleanedLines = new java.util.ArrayList<>();
-        java.util.Set<Integer> addedLineNumbers = new java.util.HashSet<>();
-        java.util.Set<Integer> removedLineNumbers = new java.util.HashSet<>();
+    private CleanedDiff buildFullFileDiff(String afterContent, String unifiedDiff) {
+        if (unifiedDiff == null || unifiedDiff.isEmpty()) {
+            return new CleanedDiff(afterContent, Set.of(), Set.of());
+        }
 
-        int currentLine = 0;
+        Set<Integer> addedLineIndices = new HashSet<>();
+        Pattern hunkPattern = Pattern.compile("\\+([0-9]+)");
+        int newFileLine = -1;
 
-        for (String line : lines) {
-            // Skip git metadata lines
-            if (line.startsWith("diff --git")) {
+        for (String line : unifiedDiff.split("\n")) {
+            if (line.startsWith("diff --git") || line.startsWith("index ")
+                    || line.startsWith("---") || line.startsWith("+++")
+                    || line.startsWith("\\")) {
                 continue;
             }
-
-            // Skip index line (hash info)
-            if (line.startsWith("index ")) {
-                continue;
-            }
-
-            // Skip file headers (--- and +++)
-            if (line.startsWith("---") || line.startsWith("+++")) {
-                continue;
-            }
-
-            // Skip hunk headers (@@ ... @@)
             if (line.startsWith("@@")) {
+                Matcher m = hunkPattern.matcher(line);
+                if (m.find()) {
+                    newFileLine = Integer.parseInt(m.group(1));
+                }
                 continue;
             }
-
-            // Added line - remove the leading +
+            if (newFileLine < 0) continue;
             if (line.startsWith("+")) {
-                String cleanLine = line.length() > 1 ? line.substring(1) : "";
-                cleanedLines.add(cleanLine);
-                addedLineNumbers.add(currentLine);
-                currentLine++;
-            }
-            // Removed line - remove the leading -
-            else if (line.startsWith("-")) {
-                String cleanLine = line.length() > 1 ? line.substring(1) : "";
-                cleanedLines.add(cleanLine);
-                removedLineNumbers.add(currentLine);
-                currentLine++;
-            }
-            // Context line - remove the leading space
-            else if (line.startsWith(" ")) {
-                String cleanLine = line.length() > 1 ? line.substring(1) : "";
-                cleanedLines.add(cleanLine);
-                currentLine++;
-            }
-            // Fallback for any other line
-            else {
-                cleanedLines.add(line);
-                currentLine++;
+                addedLineIndices.add(newFileLine - 1);
+                newFileLine++;
+            } else if (line.startsWith(" ")) {
+                newFileLine++;
             }
         }
 
-        String cleanedContent = String.join("\n", cleanedLines);
-        return new CleanedDiff(cleanedContent, addedLineNumbers, removedLineNumbers);
+        return new CleanedDiff(afterContent, addedLineIndices, Set.of());
     }
 
     private static class CleanedDiff {

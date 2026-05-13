@@ -1,21 +1,22 @@
 package com.kalynx.serverlessreviewtool.swingextensions.themedcomponents;
 
-import com.kalynx.serverlessreviewtool.theme.Theme;
-import com.kalynx.serverlessreviewtool.theme.ThemeManager;
+  import com.kalynx.serverlessreviewtool.theme.ThemeManager;
 
 import java.awt.*;
-import java.util.Map;
-import java.util.Set;
+import java.util.List;
 
 /**
  * AnnotatedScrollBar extends ThemedScrollBar with an overview ruler painted directly
- * on the scrollbar track. Change indicators appear on the left edge and comment
- * indicators on the right edge, each proportional to document line position.
+ * on the scrollbar track. Change blocks store raw 1-based line numbers; fractions are
+ * computed at paint time from {@code totalLines} so alignment is never affected by
+ * layout-timing issues. Comment marks carry pre-computed fractions (they are always
+ * set after the pane is fully laid out).
  */
 public class AnnotatedScrollBar extends ThemedScrollBar {
 
-    private static final int MARK_WIDTH = 3;
-    private static final int MARK_HEIGHT = 3;
+    private static final int CHANGE_MARK_WIDTH = 3;
+    private static final int COMMENT_MARK_WIDTH = 3;
+    private static final int MIN_MARK_HEIGHT = 2;
     private static final int MARK_ALPHA = 210;
 
     /**
@@ -27,91 +28,104 @@ public class AnnotatedScrollBar extends ThemedScrollBar {
         RESOLVED
     }
 
-    private int totalLines = 0;
-    private Set<Integer> addedLines = Set.of();
-    private Set<Integer> removedLines = Set.of();
-    private Set<Integer> modifiedLines = Set.of();
-    private Map<Integer, CommentIndicatorType> commentLines = Map.of();
+    /**
+     * A contiguous block of changed lines described by 1-based line numbers.
+     *
+     * @param lineStart 1-based first line of the block (inclusive)
+     * @param lineEnd   1-based line after the last line of the block (exclusive)
+     * @param color     fill color for the block
+     */
+    public record ChangeBlock(int lineStart, int lineEnd, Color color) {}
 
-    private final ThemeManager themeManager = ThemeManager.getInstance();
+    /**
+     * A single comment indicator at a fractional track position.
+     *
+     * @param yFrac fractional position (0.0 = top, 1.0 = bottom)
+     * @param type  comment state
+     */
+    public record CommentMark(double yFrac, CommentIndicatorType type) {}
+
+    private int cachedTotalLines = 0;
+    private List<ChangeBlock> changeBlocks = List.of();
+    private List<CommentMark> commentMarks = List.of();
 
     /**
      * Creates a vertical annotated scroll bar.
      */
     public AnnotatedScrollBar() {
         super(ScrollBarOrientation.VERTICAL);
-        setPreferredSize(new Dimension(themeManager.scale(16), themeManager.scale(16)));
+        setPreferredSize(new Dimension(ThemeManager.getInstance().scale(16),
+                ThemeManager.getInstance().scale(16)));
     }
 
     /**
-     * Updates all change-type annotation data and repaints.
+     * Replaces change block data and schedules a repaint.
      *
-     * @param totalLines   total line count in the document
-     * @param addedLines   1-based line numbers of added lines
-     * @param removedLines 1-based line numbers of removed lines
-     * @param modifiedLines 1-based line numbers of modified lines
+     * @param totalLines total number of lines in the displayed document
+     * @param blocks     change blocks with 1-based line numbers
      */
-    public void setChangeAnnotations(int totalLines, Set<Integer> addedLines,
-                                     Set<Integer> removedLines, Set<Integer> modifiedLines) {
-        this.totalLines = totalLines;
-        this.addedLines = Set.copyOf(addedLines);
-        this.removedLines = Set.copyOf(removedLines);
-        this.modifiedLines = Set.copyOf(modifiedLines);
+    public void setChangeBlocks(int totalLines, List<ChangeBlock> blocks) {
+        this.cachedTotalLines = totalLines;
+        this.changeBlocks = List.copyOf(blocks);
         repaint();
     }
 
     /**
-     * Updates comment indicator data and repaints.
+     * Replaces comment mark data and schedules a repaint.
      *
-     * @param commentLines map of 1-based line number to comment indicator type
+     * @param marks precomputed comment marks with fractional positions
      */
-    public void setCommentAnnotations(Map<Integer, CommentIndicatorType> commentLines) {
-        this.commentLines = Map.copyOf(commentLines);
+    public void setCommentMarks(List<CommentMark> marks) {
+        this.commentMarks = List.copyOf(marks);
         repaint();
     }
 
     @Override
     public void paint(Graphics g) {
         super.paint(g);
-        if (totalLines > 0) {
+        if (!changeBlocks.isEmpty() || !commentMarks.isEmpty()) {
             paintIndicators(g);
         }
     }
 
     private void paintIndicators(Graphics g) {
+        Rectangle track = resolveTrackBounds();
+        if (track.height <= 0) return;
+
         Graphics2D g2 = (Graphics2D) g.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        Theme theme = themeManager.getCurrentTheme();
-        int height = getHeight();
-        int rightX = getWidth() - MARK_WIDTH;
-
-        for (int line : addedLines) {
-            paintMark(g2, line, height, theme.getAddedLineColor(), 0);
-        }
-        for (int line : removedLines) {
-            paintMark(g2, line, height, theme.getRemovedLineColor(), 0);
-        }
-        for (int line : modifiedLines) {
-            paintMark(g2, line, height, theme.getModifiedLineColor(), 0);
+        if (cachedTotalLines > 0) {
+            for (ChangeBlock block : changeBlocks) {
+                double startFrac = (block.lineStart() - 1.0) / cachedTotalLines;
+                double endFrac = Math.min(1.0, block.lineEnd() / (double) cachedTotalLines);
+                int y = track.y + (int) (startFrac * track.height);
+                int h = Math.max(MIN_MARK_HEIGHT, (int) ((endFrac - startFrac) * track.height));
+                g2.setColor(withAlpha(block.color()));
+                g2.fillRect(track.x, y, CHANGE_MARK_WIDTH, h);
+            }
         }
 
-        for (Map.Entry<Integer, CommentIndicatorType> entry : commentLines.entrySet()) {
-            paintMark(g2, entry.getKey(), height, resolveCommentColor(entry.getValue()), rightX);
+        int rightX = track.x + track.width - COMMENT_MARK_WIDTH;
+        for (CommentMark mark : commentMarks) {
+            int y = track.y + (int) (mark.yFrac() * track.height);
+            g2.setColor(withAlpha(resolveCommentColor(mark.type())));
+            g2.fillRect(rightX, y, COMMENT_MARK_WIDTH, MIN_MARK_HEIGHT + 2);
         }
 
         g2.dispose();
     }
 
-    private void paintMark(Graphics2D g2, int lineNumber, int trackHeight, Color base, int x) {
-        int y = lineToY(lineNumber, trackHeight);
-        g2.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), MARK_ALPHA));
-        g2.fillRect(x, y, MARK_WIDTH, MARK_HEIGHT);
+    private Rectangle resolveTrackBounds() {
+        Insets i = getInsets();
+        if (i == null) i = new Insets(0, 0, 0, 0);
+        return new Rectangle(i.left, i.top,
+                getWidth() - i.left - i.right,
+                getHeight() - i.top - i.bottom);
     }
 
-    private int lineToY(int lineNumber, int trackHeight) {
-        if (totalLines <= 0 || lineNumber <= 0) return 0;
-        return (int) ((double) (lineNumber - 1) / totalLines * trackHeight);
+    private Color withAlpha(Color color) {
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(), MARK_ALPHA);
     }
 
     private Color resolveCommentColor(CommentIndicatorType type) {
@@ -122,4 +136,3 @@ public class AnnotatedScrollBar extends ThemedScrollBar {
         };
     }
 }
-

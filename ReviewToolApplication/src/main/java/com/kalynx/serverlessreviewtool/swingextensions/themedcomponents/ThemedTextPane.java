@@ -25,9 +25,9 @@ public class ThemedTextPane extends JTextPane {
         setMargin(new Insets(themeManager.scale(5), themeManager.scale(5), themeManager.scale(5), themeManager.scale(5)));
     }
 
-    public ThemedTextPane(boolean editable) {
-        this();
-        setEditable(editable);
+    @Override
+    public boolean getScrollableTracksViewportWidth() {
+        return false;
     }
 
     @Override
