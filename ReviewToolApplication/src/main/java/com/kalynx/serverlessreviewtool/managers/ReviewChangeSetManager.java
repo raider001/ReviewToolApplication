@@ -453,10 +453,10 @@ public class ReviewChangeSetManager {
     private List<String> candidateRefs(String ref) {
         List<String> candidates = new ArrayList<>();
         if (ref == null || ref.isBlank()) return candidates;
-        candidates.add(ref);
         if (!ref.startsWith("origin/")) {
             candidates.add("origin/" + ref);
         }
+        candidates.add(ref);
         return candidates;
     }
 

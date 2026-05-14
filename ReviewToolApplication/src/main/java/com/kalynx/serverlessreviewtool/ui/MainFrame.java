@@ -9,6 +9,10 @@ import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewItemManager;
 import com.kalynx.serverlessreviewtool.managers.UserManager;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
+import com.kalynx.serverlessreviewtool.notifications.ReviewNotificationService;
+import com.kalynx.serverlessreviewtool.notifications.ReviewStatusChangeCondition;
+import com.kalynx.serverlessreviewtool.notifications.ReviewerAddedCondition;
+import com.kalynx.serverlessreviewtool.notifications.SystemNotifier;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.QuickButton;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedFrame;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
@@ -153,6 +157,14 @@ public class MainFrame extends ThemedFrame {
         helpPanel = new HelpPanel();
 
         ConsoleLogBridge.attachLogsPanel(logsPanel);
+
+        ReviewNotificationService notificationService = new ReviewNotificationService(
+            SystemNotifier.getInstance(),
+            settingsManager::getLoggedInUserName
+        );
+        notificationService.addCondition(new ReviewStatusChangeCondition());
+        notificationService.addCondition(new ReviewerAddedCondition());
+        reviewContextManager.addListener(notificationService::onContextChanged);
     }
 
     private void setupReviewDoubleClickHandler() {
