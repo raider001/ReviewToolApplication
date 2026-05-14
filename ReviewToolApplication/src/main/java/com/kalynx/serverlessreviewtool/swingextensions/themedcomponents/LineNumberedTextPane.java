@@ -10,6 +10,7 @@ import javax.swing.*;
 import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.text.DefaultCaret;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -47,6 +48,8 @@ public class LineNumberedTextPane extends ThemedPanel {
         this.textPane = new ThemedTextPane();
         this.lineNumberPanel = new LineNumberPanel();
         this.scaledFontSize = themeManager.scale(FONT_SIZE_BASE);
+
+        ((DefaultCaret) textPane.getCaret()).setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
 
         Font synchronizedFont = new Font(FONT_NAME, Font.PLAIN, scaledFontSize);
         textPane.setFont(synchronizedFont);
