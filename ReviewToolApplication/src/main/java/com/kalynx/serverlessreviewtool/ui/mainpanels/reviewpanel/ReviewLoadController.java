@@ -19,6 +19,8 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
+import javax.swing.SwingUtilities;
+
 /**
  * Orchestrates the async pipeline for loading a review: metadata loading, branch fetching,
  * parallel commit and file resolution, and model updates on completion.
@@ -224,16 +226,20 @@ public class ReviewLoadController {
                 LOGGER.info("TIMING [{}] commits+files (parallel): {}ms", reviewId, elapsedMs(commitsAndFilesStart));
                 List<ReviewFile> allFiles = finalFilesFuture.join();
                 logFiles(allFiles);
-                updateBranchesInModel(allFiles);
-                model.codeViewerModel.setAvailableFiles(allFiles);
+                long totalElapsedMs = elapsedMs(overallStart);
 
-                if (viewportRestoreState != null) {
-                    restoreViewportState(allFiles, viewportRestoreState);
-                }
-                if (postLoadNotificationMessage != null && !postLoadNotificationMessage.isBlank()) {
-                    showToast.accept(postLoadNotificationMessage);
-                }
-                LOGGER.info("TIMING [{}] === REVIEW LOAD COMPLETE: {}ms total ===", reviewId, elapsedMs(overallStart));
+                SwingUtilities.invokeLater(() -> {
+                    updateBranchesInModel(allFiles);
+                    model.codeViewerModel.setAvailableFiles(allFiles);
+
+                    if (viewportRestoreState != null) {
+                        restoreViewportState(allFiles, viewportRestoreState);
+                    }
+                    if (postLoadNotificationMessage != null && !postLoadNotificationMessage.isBlank()) {
+                        showToast.accept(postLoadNotificationMessage);
+                    }
+                    LOGGER.info("TIMING [{}] === REVIEW LOAD COMPLETE: {}ms total ===", reviewId, totalElapsedMs);
+                });
             });
     }
 

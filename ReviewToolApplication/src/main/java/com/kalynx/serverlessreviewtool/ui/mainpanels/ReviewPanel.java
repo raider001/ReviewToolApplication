@@ -62,7 +62,7 @@ public class ReviewPanel extends ThemedPanel {
     private final ReviewAuthorActionHandler authorActionHandler;
     private final UpdateToastWindow toastWindow;
 
-    private ReviewContext currentReviewContext;
+    private volatile ReviewContext currentReviewContext;
     private final List<Consumer<Boolean>> additionalReviewerStatusListeners = new ArrayList<>();
     private boolean isCurrentUserReviewer = false;
     private boolean isReviewTerminal = false;
