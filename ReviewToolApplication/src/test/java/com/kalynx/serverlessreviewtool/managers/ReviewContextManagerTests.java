@@ -1,7 +1,9 @@
 package com.kalynx.serverlessreviewtool.managers;
 
+import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.git.GitImpl;
 import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
+import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
 import com.kalynx.serverlessreviewtool.mockdata.GitRepositoryInitializer;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.Repository;
@@ -34,7 +36,7 @@ class ReviewContextManagerTests {
     @TempDir
     Path tempDir;
 
-    private GitImpl git;
+    private Git git;
     private ReviewContextManager reviewContextManager;
 
     @BeforeAll
@@ -50,8 +52,10 @@ class ReviewContextManagerTests {
     void setUp() throws Exception {
         Path gitRoot = tempDir.resolve("test-repositories");
         git = new GitImpl(gitRoot);
+        ReviewNotesManagerFactory factory = repo -> new GitReviewNotesManager(git, repo);
         RepositoryManager repositoryManager = new RepositoryManager();
-        reviewContextManager = new ReviewContextManager(git, repositoryManager);
+        reviewContextManager = new ReviewContextManager(git, repositoryManager,
+            new ReviewCommentManager(factory), new ReviewChangeSetManager(git, factory));
 
         String primaryUrl = toFileRemoteUrl(PRIMARY_REPOSITORY);
         String secondaryUrl = toFileRemoteUrl(SECONDARY_REPOSITORY);

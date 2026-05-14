@@ -23,12 +23,20 @@ public class ReviewItemLoader {
     private static final Logger LOGGER = LoggerFactory.getLogger(ReviewItemLoader.class);
 
     private final Git git;
+    private final ReviewNotesManagerFactory notesManagerFactory;
     private static final String NOTES_REF_PREFIX = "refs/notes/reviews/";
     private static final Pattern REVIEW_ID_PATTERN = Pattern.compile("^" + Pattern.quote(NOTES_REF_PREFIX) + "([^/]+)/");
     private static final int GIT_LOAD_BATCH_SIZE = 16;
 
-    public ReviewItemLoader(Git git) {
+    /**
+     * Constructs a ReviewItemLoader.
+     *
+     * @param git the git client
+     * @param notesManagerFactory factory for creating per-repository git notes managers
+     */
+    public ReviewItemLoader(Git git, ReviewNotesManagerFactory notesManagerFactory) {
         this.git = git;
+        this.notesManagerFactory = notesManagerFactory;
     }
 
     public CompletableFuture<List<ReviewItem>> loadReviewsFromRepository(String repositoryName) {
@@ -132,7 +140,7 @@ public class ReviewItemLoader {
     }
 
     private CompletableFuture<ReviewItem> loadReviewItem(String repositoryName, String reviewId) {
-        GitReviewNotesManager notesManager = new GitReviewNotesManager(git, repositoryName);
+        GitReviewNotesManager notesManager = notesManagerFactory.create(repositoryName);
 
         return notesManager.readAllMetadataFromLocal(reviewId)
             .thenApply(metadata -> {

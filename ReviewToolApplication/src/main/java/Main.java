@@ -5,6 +5,8 @@ import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.git.*;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
+import com.kalynx.serverlessreviewtool.managers.ReviewChangeSetManager;
+import com.kalynx.serverlessreviewtool.managers.ReviewCommentManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewItemManager;
 import com.kalynx.serverlessreviewtool.managers.UserManager;
@@ -48,12 +50,16 @@ public class Main {
 
     static {
         try {
-            DI.add(Git.class, new GitImpl(gitLocalPath));
+            GitImpl gitImpl = new GitImpl(gitLocalPath);
+            DI.add(Git.class, gitImpl);
+            DI.add(ReviewNotesManagerFactory.class, repo -> new GitReviewNotesManager(gitImpl, repo));
             DI.inject(RepositoryLoader.class);
             REPOSITORY_MANAGER = DI.inject(RepositoryManager.class);
             SETTINGS_MANAGER = DI.inject(SettingsManager.class);
             DI.inject(ReviewItemLoader.class);
             REVIEW_ITEM_MANAGER = DI.inject(ReviewItemManager.class);
+            DI.inject(ReviewCommentManager.class);
+            DI.inject(ReviewChangeSetManager.class);
             REVIEW_CONTEXT_MANAGER = DI.inject(ReviewContextManager.class);
             USER_MANAGER = DI.inject(UserManager.class);
             PLUGIN_MANAGER = DI.inject(PluginManager.class);

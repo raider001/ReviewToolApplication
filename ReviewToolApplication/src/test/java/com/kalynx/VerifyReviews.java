@@ -2,7 +2,9 @@ package com.kalynx;
 
 import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.git.GitFactory;
+import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
 import com.kalynx.serverlessreviewtool.git.ReviewItemLoader;
+import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,7 +23,8 @@ public class VerifyReviews {
     static void main() {
         try {
             Git git = GitFactory.getInstance();
-            ReviewItemLoader loader = new ReviewItemLoader(git);
+            ReviewNotesManagerFactory factory = repo -> new GitReviewNotesManager(git, repo);
+            ReviewItemLoader loader = new ReviewItemLoader(git, factory);
 
             LOGGER.info("=== Java Backend Service ===");
             List<ReviewItem> javaReviews = loader.loadReviewsFromRepository("java-backend-service").get();
