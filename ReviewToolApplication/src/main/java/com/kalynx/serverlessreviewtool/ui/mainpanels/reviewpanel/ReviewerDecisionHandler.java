@@ -73,6 +73,45 @@ public class ReviewerDecisionHandler {
         applyReviewerDecision(ReviewerStatus.CHANGES_REQUESTED, "Requesting changes...");
     }
 
+    /**
+     * Resets the given reviewer's status back to {@link ReviewerStatus#REVIEWING},
+     * prompting them to review the code again.
+     *
+     * @param reviewerName name of the reviewer to reset
+     */
+    public void handleReRequestReview(String reviewerName) {
+        ReviewContext current = contextSupplier.get();
+        if (current == null) {
+            LOGGER.warn("Cannot request re-review - no review context loaded");
+            return;
+        }
+
+        List<String> repositoryNames = current.repositories.stream()
+            .map(Repository::getName)
+            .toList();
+
+        LOGGER.debug("Requesting re-review from {} on review {}", reviewerName, current.reviewId);
+        LoadingStateManager.getInstance().startLoading("Requesting re-review...");
+
+        reviewContextManager.updateReviewerStatus(current.reviewId, reviewerName, ReviewerStatus.REVIEWING, repositoryNames)
+            .thenCompose(ignored -> reviewContextManager.loadReviewMetadataOnly(
+                current.reviewId, repositoryNames, current.repositories.getFirst().getName()))
+            .thenAccept(updatedContext -> {
+                LoadingStateManager.getInstance().stopLoading("Requesting re-review...");
+                if (updatedContext != null) {
+                    contextConsumer.accept(updatedContext);
+                    SwingUtilities.invokeLater(() -> model.reviewDetailModel.setReviewData(
+                        updatedContext.reviewId, updatedContext.title, updatedContext.author,
+                        updatedContext.summary, updatedContext.status, updatedContext.reviewers));
+                }
+            })
+            .exceptionally(error -> {
+                LoadingStateManager.getInstance().stopLoading("Requesting re-review...");
+                LOGGER.error("Failed to request re-review from {}", reviewerName, error);
+                return null;
+            });
+    }
+
     private void applyReviewerDecision(ReviewerStatus status, String loadingMessage) {
         ReviewContext current = contextSupplier.get();
         if (current == null) {

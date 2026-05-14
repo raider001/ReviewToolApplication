@@ -126,6 +126,7 @@ public class ReviewPanel extends ThemedPanel {
         reviewDetailPanel.setOnMarkInProgressAction(authorActionHandler::handleMarkInProgress);
         reviewDetailPanel.setOnCancelReviewAction(authorActionHandler::handleCancelReview);
         reviewDetailPanel.setOnReviewerStatusChanged(this::onReviewerStatusChanged);
+        reviewDetailPanel.setOnReRequestReview(reviewerDecisionHandler::handleReRequestReview);
     }
 
     private void setupListeners(PluginManager pluginManager) {

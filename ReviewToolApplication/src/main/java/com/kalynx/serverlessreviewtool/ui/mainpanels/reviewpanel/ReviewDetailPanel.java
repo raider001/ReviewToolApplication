@@ -3,8 +3,10 @@ package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel;
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
+import com.kalynx.serverlessreviewtool.models.ReviewerStatus;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedBadge;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedButton;
+import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedConfirmDialog;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedLabel;
 import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.ReviewDetailModel;
@@ -14,6 +16,8 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -50,6 +54,7 @@ public class ReviewDetailPanel extends ThemedPanel {
     private Runnable onCloseReviewAction;
     private Runnable onMarkInProgressAction;
     private Runnable onCancelReviewAction;
+    private Consumer<String> onReRequestReview;
 
     private String currentUserName;
     private boolean isCurrentUserReviewer = false;
@@ -119,7 +124,35 @@ public class ReviewDetailPanel extends ThemedPanel {
         ThemedBadge badge = new ThemedBadge(
             reviewer.getName() + "  ·  " + reviewer.getStatus().getDisplayName());
         badge.setCustomColor(reviewer.getStatus().getColor());
+
+        if (reviewer.getStatus() != ReviewerStatus.REVIEWING) {
+            badge.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            badge.setToolTipText("Click to request re-review from " + reviewer.getName());
+            badge.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    onReRequestReviewBadgeClicked(reviewer);
+                }
+            });
+        }
+
         return badge;
+    }
+
+    private void onReRequestReviewBadgeClicked(ReviewerInfo reviewer) {
+        if (onReRequestReview == null) {
+            LOGGER.warn("Re-request review action not configured");
+            return;
+        }
+        Window ancestor = SwingUtilities.getWindowAncestor(this);
+        boolean confirmed = ThemedConfirmDialog.showConfirmation(
+            ancestor,
+            "Request Re-review",
+            "Request re-review from " + reviewer.getName() + "?"
+        );
+        if (confirmed) {
+            onReRequestReview.accept(reviewer.getName());
+        }
     }
 
     private void updateStatusBadge(ReviewStatus status) {
@@ -283,6 +316,16 @@ public class ReviewDetailPanel extends ThemedPanel {
 
     public void setOnReviewerStatusChanged(Consumer<Boolean> callback) {
         this.onReviewerStatusChanged = callback;
+    }
+
+    /**
+     * Sets the callback invoked when the user requests a re-review from a reviewer.
+     * The callback receives the name of the reviewer to reset.
+     *
+     * @param callback consumer receiving the reviewer's name
+     */
+    public void setOnReRequestReview(Consumer<String> callback) {
+        this.onReRequestReview = callback;
     }
 
     private void setLabelText(ThemedLabel label, Supplier<String> textSetter) {
