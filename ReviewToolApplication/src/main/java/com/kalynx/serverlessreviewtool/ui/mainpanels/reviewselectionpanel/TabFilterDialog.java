@@ -5,8 +5,8 @@ import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
 import com.kalynx.serverlessreviewtool.managers.UserManager;
 import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.User;
-import com.kalynx.serverlessreviewtool.swingextensions.ComponentModel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.*;
+import com.kalynx.swingtheme.ComponentModel;
+import com.kalynx.swingtheme.themedcomponents.*;
 import net.miginfocom.swing.MigLayout;
 
 import javax.swing.*;

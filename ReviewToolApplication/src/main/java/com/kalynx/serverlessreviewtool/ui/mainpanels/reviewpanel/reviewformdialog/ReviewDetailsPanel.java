@@ -1,9 +1,9 @@
 package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.reviewformdialog;
 
-import com.kalynx.serverlessreviewtool.swingextensions.ComponentModel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.*;
-import com.kalynx.serverlessreviewtool.theme.ThemeManager;
-import com.kalynx.serverlessreviewtool.utils.Validator;
+import com.kalynx.swingtheme.ComponentModel;
+import com.kalynx.swingtheme.themedcomponents.*;
+import com.kalynx.swingtheme.theme.ThemeManager;
+import com.kalynx.swingtheme.utils.Validator;
 import net.miginfocom.swing.MigLayout;
 
 import javax.swing.*;

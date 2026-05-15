@@ -1,6 +1,6 @@
 package com.kalynx.serverlessreviewtool.notifications;
 
-import com.kalynx.serverlessreviewtool.theme.icons.AppIcon;
+import com.kalynx.swingtheme.theme.icons.AppIcon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

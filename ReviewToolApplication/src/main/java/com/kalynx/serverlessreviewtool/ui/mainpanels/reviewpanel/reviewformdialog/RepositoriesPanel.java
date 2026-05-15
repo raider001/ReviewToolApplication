@@ -1,8 +1,8 @@
 package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.reviewformdialog;
 
-import com.kalynx.serverlessreviewtool.swingextensions.BindingLifecycleHelper;
-import com.kalynx.serverlessreviewtool.swingextensions.ComponentModel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.*;
+import com.kalynx.swingtheme.BindingLifecycleHelper;
+import com.kalynx.swingtheme.ComponentModel;
+import com.kalynx.swingtheme.themedcomponents.*;
 import net.miginfocom.swing.MigLayout;
 
 import javax.swing.*;

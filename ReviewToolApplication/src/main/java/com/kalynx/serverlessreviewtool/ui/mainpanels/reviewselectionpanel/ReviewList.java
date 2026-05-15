@@ -3,7 +3,7 @@ package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewselectionpanel;
 import java.io.Serial;
 
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedList;
+import com.kalynx.swingtheme.themedcomponents.ThemedList;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewselectionpanel.reviewitem.ReviewItemCellRenderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -6,7 +6,7 @@ import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
 import com.kalynx.serverlessreviewtool.models.ReviewerStatus;
-import com.kalynx.serverlessreviewtool.theme.LoadingStateManager;
+import com.kalynx.swingtheme.theme.LoadingStateManager;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.ReviewPanelModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

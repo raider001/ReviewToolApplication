@@ -4,10 +4,10 @@ import java.io.Serial;
 
 import com.kalynx.serverlessreviewtool.eventlisteners.SetOnFilterEvent;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedComboBox;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedLabel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedTextField;
+import com.kalynx.swingtheme.themedcomponents.ThemedComboBox;
+import com.kalynx.swingtheme.themedcomponents.ThemedLabel;
+import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.ThemedTextField;
 import com.kalynx.serverlessreviewtool.utils.DebounceTimer;
 import net.miginfocom.swing.MigLayout;
 

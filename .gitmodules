@@ -7,3 +7,8 @@
 [submodule "ReviewToolDefaultUserPlugin"]
 	path = ReviewToolDefaultUserPlugin
 	url = https://github.com/raider001/ReviewToolDefaultUserPlugin.git
+
+
+[submodule "KalynxSwingCustomTheme"]
+	path = KalynxSwingCustomTheme
+	url = https://github.com/raider001/KalynxSwingCustomTheme.git

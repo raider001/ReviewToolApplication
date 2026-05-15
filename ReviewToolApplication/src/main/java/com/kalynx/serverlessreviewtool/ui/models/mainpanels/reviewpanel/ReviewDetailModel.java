@@ -2,7 +2,7 @@ package com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel;
 
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
-import com.kalynx.serverlessreviewtool.swingextensions.ComponentModel;
+import com.kalynx.swingtheme.ComponentModel;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -1,6 +1,6 @@
 package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewselectionpanel;
 
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.*;
+import com.kalynx.swingtheme.themedcomponents.*;
 import net.miginfocom.swing.MigLayout;
 
 import javax.swing.*;

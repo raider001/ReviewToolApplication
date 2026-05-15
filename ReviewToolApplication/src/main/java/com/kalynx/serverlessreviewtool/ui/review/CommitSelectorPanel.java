@@ -4,11 +4,11 @@ import java.io.Serial;
 
 import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.models.*;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedComboBox;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedLabel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedWindow;
-import com.kalynx.serverlessreviewtool.theme.Theme;
+import com.kalynx.swingtheme.themedcomponents.ThemedComboBox;
+import com.kalynx.swingtheme.themedcomponents.ThemedLabel;
+import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.ThemedWindow;
+import com.kalynx.swingtheme.theme.Theme;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.CodeViewerModel;
 import net.miginfocom.swing.MigLayout;
 import org.slf4j.Logger;

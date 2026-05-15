@@ -1,6 +1,6 @@
 package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel;
 
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

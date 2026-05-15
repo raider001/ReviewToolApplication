@@ -2,13 +2,13 @@ package com.kalynx.serverlessreviewtool.ui.mainpanels.settingspanel;
 
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedButton;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedLabel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedTextField;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedTitledBorder;
-import com.kalynx.serverlessreviewtool.theme.icons.AlertIcon;
-import com.kalynx.serverlessreviewtool.theme.icons.CheckIcon;
+import com.kalynx.swingtheme.themedcomponents.ThemedButton;
+import com.kalynx.swingtheme.themedcomponents.ThemedLabel;
+import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.ThemedTextField;
+import com.kalynx.swingtheme.themedcomponents.ThemedTitledBorder;
+import com.kalynx.swingtheme.theme.icons.AlertIcon;
+import com.kalynx.swingtheme.theme.icons.CheckIcon;
 import net.miginfocom.swing.MigLayout;
 
 import java.awt.Color;

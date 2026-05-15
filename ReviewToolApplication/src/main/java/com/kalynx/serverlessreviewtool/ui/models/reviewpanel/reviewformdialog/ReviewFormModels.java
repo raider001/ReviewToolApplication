@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.ui.models.reviewpanel.reviewformdialog;
 
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
-import com.kalynx.serverlessreviewtool.swingextensions.ComponentModel;
+import com.kalynx.swingtheme.ComponentModel;
 import com.kalynx.serverlessreviewtool.utils.UuidV7Generator;
 
 import java.util.ArrayList;

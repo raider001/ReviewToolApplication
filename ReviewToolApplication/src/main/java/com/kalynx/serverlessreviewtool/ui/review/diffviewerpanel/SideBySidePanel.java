@@ -3,12 +3,12 @@ package com.kalynx.serverlessreviewtool.ui.review.diffviewerpanel;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.models.ReviewComment;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.AnnotatedScrollPane;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.LineNumberedTextPane;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedSplitPane;
-import com.kalynx.serverlessreviewtool.theme.Theme;
-import com.kalynx.serverlessreviewtool.theme.ThemeManager;
+import com.kalynx.swingtheme.themedcomponents.AnnotatedScrollPane;
+import com.kalynx.swingtheme.themedcomponents.LineNumberedTextPane;
+import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.ThemedSplitPane;
+import com.kalynx.swingtheme.theme.Theme;
+import com.kalynx.swingtheme.theme.ThemeManager;
 
 import javax.swing.*;
 import javax.swing.text.*;

@@ -5,7 +5,7 @@ import java.io.Serial;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.models.ReviewComment;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.CodeViewerModel;
 import com.kalynx.serverlessreviewtool.ui.review.diffviewerpanel.SideBySidePanel;
 import com.kalynx.serverlessreviewtool.ui.review.diffviewerpanel.UnifiedDiffPanel;

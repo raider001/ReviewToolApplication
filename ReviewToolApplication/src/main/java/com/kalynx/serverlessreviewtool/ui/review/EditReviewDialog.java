@@ -7,12 +7,12 @@ import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedOptionPane;
-import com.kalynx.serverlessreviewtool.theme.LoadingStateManager;
+import com.kalynx.swingtheme.themedcomponents.ThemedOptionPane;
+import com.kalynx.swingtheme.theme.LoadingStateManager;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.ReviewFormDialog;
 import com.kalynx.serverlessreviewtool.ui.models.reviewpanel.reviewformdialog.ReviewFormModels;
 import com.kalynx.serverlessreviewtool.models.review.StreamEntry;
-import com.kalynx.serverlessreviewtool.utils.Validator;
+import com.kalynx.swingtheme.utils.Validator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

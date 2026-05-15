@@ -2,8 +2,8 @@ package com.kalynx.serverlessreviewtool.ui.mainpanels;
 
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedScrollPane;
+import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.ThemedScrollPane;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.settingspanel.CacheManagementPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.settingspanel.NotificationServiceSettingsPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.settingspanel.TabConfigSettingsPanel;

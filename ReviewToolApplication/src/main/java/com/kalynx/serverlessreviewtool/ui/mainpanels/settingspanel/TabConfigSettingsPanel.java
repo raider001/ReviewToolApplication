@@ -2,9 +2,9 @@ package com.kalynx.serverlessreviewtool.ui.mainpanels.settingspanel;
 
 import com.kalynx.serverlessreviewtool.configuration.AppSettings;
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.*;
+import com.kalynx.swingtheme.themedcomponents.*;
 import com.kalynx.serverlessreviewtool.utils.TabConfigCodec;
-import com.kalynx.serverlessreviewtool.utils.Validator;
+import com.kalynx.swingtheme.utils.Validator;
 import net.miginfocom.swing.MigLayout;
 
 import javax.swing.*;

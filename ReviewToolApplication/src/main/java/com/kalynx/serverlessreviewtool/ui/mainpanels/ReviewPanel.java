@@ -11,7 +11,7 @@ import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
 import com.kalynx.serverlessreviewtool.plugin.NotificationPlugin;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.CodePanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.RejectApprovePanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.ReviewAutoRefreshController;

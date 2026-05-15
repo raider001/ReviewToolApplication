@@ -3,7 +3,7 @@ package com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewselectionpane
 import com.kalynx.serverlessreviewtool.configuration.AppSettings;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
-import com.kalynx.serverlessreviewtool.swingextensions.ComponentModel;
+import com.kalynx.swingtheme.ComponentModel;
 
 import java.util.ArrayList;
 import java.util.List;

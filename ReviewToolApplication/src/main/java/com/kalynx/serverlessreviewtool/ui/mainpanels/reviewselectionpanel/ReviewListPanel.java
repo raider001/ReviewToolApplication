@@ -1,9 +1,9 @@
 package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewselectionpanel;
 
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedScrollPane;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedTabbedPane;
+import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.ThemedScrollPane;
+import com.kalynx.swingtheme.themedcomponents.ThemedTabbedPane;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewselectionpanel.ReviewSelectionPanelModel;
 import net.miginfocom.swing.MigLayout;
 

@@ -1,9 +1,11 @@
 package com.kalynx.serverlessreviewtool.models;
 
+import com.kalynx.swingtheme.themedcomponents.CommentAnnotation;
+
 /**
  * ReviewComment - An inline comment on a file with support for threading and resolution tracking
  */
-public class ReviewComment {
+public class ReviewComment implements CommentAnnotation {
     private final String id;
     private final String filePath;
     private final int lineNumber;

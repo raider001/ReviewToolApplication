@@ -2,7 +2,7 @@ package com.kalynx.serverlessreviewtool.managers;
 
 import com.kalynx.serverlessreviewtool.configuration.AppSettings;
 import com.kalynx.serverlessreviewtool.git.Git;
-import com.kalynx.serverlessreviewtool.theme.LoadingStateManager;
+import com.kalynx.swingtheme.theme.LoadingStateManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

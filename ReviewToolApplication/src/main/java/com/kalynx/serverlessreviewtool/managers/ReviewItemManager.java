@@ -5,7 +5,7 @@ import com.kalynx.serverlessreviewtool.git.ReviewItemLoader;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.plugin.RepositoryDescriptor;
 import com.kalynx.serverlessreviewtool.plugin.ReviewListUpdate;
-import com.kalynx.serverlessreviewtool.theme.LoadingStateManager;
+import com.kalynx.swingtheme.theme.LoadingStateManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

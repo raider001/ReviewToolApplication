@@ -1,10 +1,10 @@
 package com.kalynx.serverlessreviewtool.ui.mainpanels;
 
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedButton;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedLabel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedTitledBorder;
-import com.kalynx.serverlessreviewtool.theme.LoadingStateManager;
+import com.kalynx.swingtheme.themedcomponents.ThemedButton;
+import com.kalynx.swingtheme.themedcomponents.ThemedLabel;
+import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.ThemedTitledBorder;
+import com.kalynx.swingtheme.theme.LoadingStateManager;
 import net.miginfocom.swing.MigLayout;
 
 import java.util.concurrent.CompletableFuture;

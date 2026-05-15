@@ -3,8 +3,8 @@ package com.kalynx.serverlessreviewtool.ui.review.diffviewerpanel;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
 import com.kalynx.serverlessreviewtool.plugin.SyntaxHighlighterPlugin;
-import com.kalynx.serverlessreviewtool.theme.Theme;
-import com.kalynx.serverlessreviewtool.theme.ThemeManager;
+import com.kalynx.swingtheme.theme.Theme;
+import com.kalynx.swingtheme.theme.ThemeManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

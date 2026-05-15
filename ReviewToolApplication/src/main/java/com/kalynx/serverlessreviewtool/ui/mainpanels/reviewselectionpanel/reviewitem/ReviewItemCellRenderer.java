@@ -2,10 +2,10 @@ package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewselectionpanel.revie
 
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
-import com.kalynx.serverlessreviewtool.theme.ScalableComponent;
-import com.kalynx.serverlessreviewtool.theme.Theme;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedLabel;
-import com.kalynx.serverlessreviewtool.swingextensions.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.theme.ScalableComponent;
+import com.kalynx.swingtheme.theme.Theme;
+import com.kalynx.swingtheme.themedcomponents.ThemedLabel;
+import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.serverlessreviewtool.utils.TimeFormatter;
 
 import javax.swing.*;
