@@ -96,13 +96,40 @@ public class ReviewerDecisionHandler {
         reviewContextManager.updateReviewerStatus(current.reviewId, reviewerName, ReviewerStatus.REVIEWING, repositoryNames)
             .thenCompose(ignored -> reviewContextManager.loadReviewMetadataOnly(
                 current.reviewId, repositoryNames, current.repositories.getFirst().getName()))
-            .thenAccept(updatedContext -> {
+            .thenCompose(updatedContext -> {
+                if (updatedContext == null) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                contextConsumer.accept(updatedContext);
+                if (!isTerminalStatus(updatedContext.status)) {
+                    ReviewStatus desired = computeOverallStatus(updatedContext);
+                    if (desired != updatedContext.status) {
+                        LOGGER.debug("Syncing overall status to {} after re-review request on review {}",
+                            desired, updatedContext.reviewId);
+                        ReviewContext synced = new ReviewContext(
+                            updatedContext.reviewId, updatedContext.title, updatedContext.summary,
+                            updatedContext.author, desired,
+                            new ArrayList<>(updatedContext.reviewers),
+                            new ArrayList<>(updatedContext.repositories),
+                            new ArrayList<>(updatedContext.comments),
+                            updatedContext.getBranch(), updatedContext.getBaseBranch(),
+                            updatedContext.hasClosedHistory()
+                        );
+                        return reviewContextManager.saveReviewMetadata(synced)
+                            .thenCompose(ignored2 -> reviewContextManager.loadReviewMetadataOnly(
+                                updatedContext.reviewId, repositoryNames,
+                                updatedContext.repositories.getFirst().getName()));
+                    }
+                }
+                return CompletableFuture.completedFuture(updatedContext);
+            })
+            .thenAccept(finalContext -> {
                 LoadingStateManager.getInstance().stopLoading("Requesting re-review...");
-                if (updatedContext != null) {
-                    contextConsumer.accept(updatedContext);
+                if (finalContext != null) {
+                    contextConsumer.accept(finalContext);
                     SwingUtilities.invokeLater(() -> model.reviewDetailModel.setReviewData(
-                        updatedContext.reviewId, updatedContext.title, updatedContext.author,
-                        updatedContext.summary, updatedContext.status, updatedContext.reviewers));
+                        finalContext.reviewId, finalContext.title, finalContext.author,
+                        finalContext.summary, finalContext.status, finalContext.reviewers));
                 }
             })
             .exceptionally(error -> {

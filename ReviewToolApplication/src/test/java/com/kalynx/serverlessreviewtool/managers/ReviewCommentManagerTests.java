@@ -275,5 +275,88 @@ class ReviewCommentManagerTests {
         assertNotNull(result);
         assertTrue(result.isEmpty());
     }
+
+    // ── S1: parallel writes ──────────────────────────────────────────────────
+
+    @Test
+    void saveComment_regularComment_metadataAndTextWrittenOnceEach() throws Exception {
+        ReviewComment comment = new ReviewComment("c1", "File.java", 10, "alice", "text", "ts");
+
+        commentManager.saveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
+
+        verify(notesManager, times(1)).writeCommentMetadata(eq(REVIEW_ID), eq("c1"), eq("alice"), eq("File.java"), eq(10), eq(10), any());
+        verify(notesManager, times(1)).writeCommentText(eq(REVIEW_ID), eq("c1"), eq("alice"), eq("text"), any(), eq("comment"));
+    }
+
+    @Test
+    void saveComment_commentNeedingResolution_allThreeStreamsWritten() throws Exception {
+        ReviewComment comment = new ReviewComment("c2", "File.java", 5, "bob", "fix", "ts", null, true);
+
+        commentManager.saveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
+
+        verify(notesManager, times(1)).writeCommentMetadata(any(), any(), any(), any(), any(int.class), any(int.class), any());
+        verify(notesManager, times(1)).writeCommentText(any(), any(), any(), any(), any(), any());
+        verify(notesManager, times(1)).writeCommentStatus(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void saveComment_resolvedComment_allThreeStreamsWritten() throws Exception {
+        ReviewComment comment = new ReviewComment("c3", "File.java", 3, "carol", "done", "ts");
+        comment.markResolved("carol");
+
+        commentManager.saveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
+
+        verify(notesManager, times(1)).writeCommentMetadata(any(), any(), any(), any(), any(int.class), any(int.class), any());
+        verify(notesManager, times(1)).writeCommentText(any(), any(), any(), any(), any(), any());
+        verify(notesManager, times(1)).writeCommentStatus(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void saveComment_regularComment_noStatusStreamWritten() throws Exception {
+        ReviewComment comment = new ReviewComment("c4", "File.java", 7, "dave", "ok", "ts");
+
+        commentManager.saveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
+
+        verify(notesManager, never()).writeCommentStatus(anyString(), anyString(), anyString(), any(), any());
+    }
+
+    // ── V1: resolve-only path ────────────────────────────────────────────────
+
+    @Test
+    void resolveComment_writesOnlyStatusStream() throws Exception {
+        ReviewComment comment = new ReviewComment("c5", "File.java", 1, "eve", "text", "ts", null, true);
+        comment.markResolved("eve");
+
+        commentManager.resolveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
+
+        verify(notesManager, times(1)).writeCommentStatus(eq(REVIEW_ID), eq("c5"), eq("eve"), any(), any());
+        verify(notesManager, never()).writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any());
+        verify(notesManager, never()).writeCommentText(anyString(), anyString(), anyString(), anyString(), any(), anyString());
+    }
+
+    @Test
+    void resolveComment_nullReviewId_returnsWithoutWriting() throws Exception {
+        ReviewComment comment = new ReviewComment("c5", "File.java", 1, "eve", "text", "ts");
+
+        commentManager.resolveComment(null, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
+
+        verify(notesManager, never()).writeCommentStatus(anyString(), anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void resolveComment_nullComment_returnsWithoutWriting() throws Exception {
+        commentManager.resolveComment(REVIEW_ID, REPO_NAME, null).get(1, TimeUnit.SECONDS);
+
+        verify(notesManager, never()).writeCommentStatus(anyString(), anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void resolveComment_notResolvedComment_writesStatusWithCorrectValues() throws Exception {
+        ReviewComment comment = new ReviewComment("c6", "File.java", 2, "frank", "text", "ts", null, true);
+
+        commentManager.resolveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
+
+        verify(notesManager).writeCommentStatus(eq(REVIEW_ID), eq("c6"), eq("frank"), eq(true), eq(false));
+    }
 }
 

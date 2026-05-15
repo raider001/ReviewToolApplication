@@ -80,6 +80,7 @@ public class ReviewCommentManager {
 
     /**
      * Save a single comment to the git notes of the specified repository.
+     * All independent streams (metadata, text, status) are written in parallel.
      *
      * @param reviewId the review identifier
      * @param repositoryName the name of the repository to write the comment to
@@ -96,29 +97,60 @@ public class ReviewCommentManager {
         GitReviewNotesManager notesManager = notesManagerFactory.create(repositoryName);
         String commentType = comment.needsResolution() ? "review" : "comment";
 
-        CompletableFuture<Void> saveFuture = notesManager.writeCommentMetadata(
+        CompletableFuture<Void> metadataFuture = notesManager.writeCommentMetadata(
             reviewId, comment.getId(), comment.getAuthor(),
             comment.getFilePath(), comment.getLineNumber(), comment.getLineNumber(), null
-        ).thenCompose(ignored ->
-            notesManager.writeCommentText(
-                reviewId, comment.getId(), comment.getAuthor(),
-                comment.getText(), comment.getParentId(), commentType
-            )
+        );
+        CompletableFuture<Void> textFuture = notesManager.writeCommentText(
+            reviewId, comment.getId(), comment.getAuthor(),
+            comment.getText(), comment.getParentId(), commentType
         );
 
+        CompletableFuture<Void> saveFuture;
         if (comment.needsResolution() || comment.isResolved()) {
-            saveFuture = saveFuture.thenCompose(ignored ->
-                notesManager.writeCommentStatus(
-                    reviewId, comment.getId(), comment.getAuthor(),
-                    comment.needsResolution(), comment.isResolved()
-                )
+            CompletableFuture<Void> statusFuture = notesManager.writeCommentStatus(
+                reviewId, comment.getId(), comment.getAuthor(),
+                comment.needsResolution(), comment.isResolved()
             );
+            saveFuture = CompletableFuture.allOf(metadataFuture, textFuture, statusFuture);
+        } else {
+            saveFuture = CompletableFuture.allOf(metadataFuture, textFuture);
         }
 
         return saveFuture
             .thenRun(() -> LOGGER.debug("Comment saved successfully for review: {} (id: {})", reviewId, comment.getId()))
             .exceptionally(error -> {
                 LOGGER.error("Failed to save comment for review: {} (id: {})", reviewId, comment.getId(), error);
+                return null;
+            });
+    }
+
+    /**
+     * Resolve or unresolve a comment by writing only the status stream.
+     * Use this instead of {@link #saveComment} when only the resolved state has changed,
+     * to avoid redundant metadata and text writes.
+     *
+     * @param reviewId the review identifier
+     * @param repositoryName the name of the repository containing the review notes
+     * @param comment the comment whose resolution state has changed
+     * @return future completing when the status stream has been written
+     */
+    public CompletableFuture<Void> resolveComment(String reviewId, String repositoryName, ReviewComment comment) {
+        if (reviewId == null || reviewId.isEmpty() || repositoryName == null || comment == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        LOGGER.debug("Resolving comment for review: {} (id: {})", reviewId, comment.getId());
+
+        GitReviewNotesManager notesManager = notesManagerFactory.create(repositoryName);
+
+        return notesManager.writeCommentStatus(
+            reviewId, comment.getId(), comment.getAuthor(),
+            comment.needsResolution(), comment.isResolved()
+        )
+            .thenRun(() -> LOGGER.debug("Comment resolution written for review: {} (id: {})", reviewId, comment.getId()))
+            .exceptionally(error -> {
+                LOGGER.error("Failed to write comment resolution for review: {} (id: {})", reviewId, comment.getId(), error);
                 return null;
             });
     }

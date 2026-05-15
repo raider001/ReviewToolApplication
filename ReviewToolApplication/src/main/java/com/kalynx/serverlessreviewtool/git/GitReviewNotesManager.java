@@ -12,6 +12,10 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
+/**
+ * Manages reading and writing review data stored as NDJSON streams in git notes.
+ * All write operations use compare-and-swap (force-with-lease) pushes with retry on conflict.
+ */
 public class GitReviewNotesManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GitReviewNotesManager.class);
@@ -20,6 +24,8 @@ public class GitReviewNotesManager {
     private static final String NOTES_REF_PREFIX = "refs/notes/reviews/";
     private static final String REMOTE = "origin";
     private static final String ZERO_OID = "0000000000000000000000000000000000000000";
+
+    private volatile CompletableFuture<String> cachedRootCommit;
 
     public GitReviewNotesManager(Git git, String repositoryName) {
         this.git = git;
@@ -132,10 +138,6 @@ public class GitReviewNotesManager {
                         ReviewStreamHelper.writeReviewer(getStreamPath(reviewId, "reviewers"), reviewer, reviewerData);
                     }
 
-                    for (String streamPath : streamPaths) {
-                        resolveAndNormalize(getStreamPath(reviewId, streamPath));
-                    }
-
                     return addAllNotesToGit(reviewId, streamPaths, anchorCommit);
                 } catch (IOException e) {
                     return CompletableFuture.failedFuture(e);
@@ -207,20 +209,16 @@ public class GitReviewNotesManager {
                 try {
                     Path primaryRepoPath = secondaryManager.getStreamPath(reviewId, "metadata/primaryRepository");
                     ReviewStreamHelper.writePrimaryRepository(primaryRepoPath, editor, "false");
-                    secondaryManager.resolveAndNormalize(primaryRepoPath);
 
                     Path branchPath = secondaryManager.getStreamPath(reviewId, "metadata/branch");
                     ReviewStreamHelper.writeBranch(branchPath, editor, branch);
-                    secondaryManager.resolveAndNormalize(branchPath);
 
                     Path baseBranchPath = secondaryManager.getStreamPath(reviewId, "metadata/baseBranch");
                     ReviewStreamHelper.writeBaseBranch(baseBranchPath, editor, baseBranch);
-                    secondaryManager.resolveAndNormalize(baseBranchPath);
 
                     if (commits != null && !commits.isEmpty()) {
                         Path commitsPath = secondaryManager.getStreamPath(reviewId, "metadata/commits");
                         ReviewStreamHelper.writeCommits(commitsPath, editor, commits);
-                        secondaryManager.resolveAndNormalize(commitsPath);
                     }
 
                     return secondaryManager.addAllNotesToGit(reviewId, streamPaths, anchorCommit);
@@ -232,7 +230,11 @@ public class GitReviewNotesManager {
     }
 
     private CompletableFuture<String> getRepositoryRootCommit() {
-        return git.executeAsync(
+        CompletableFuture<String> snapshot = cachedRootCommit;
+        if (snapshot != null && !snapshot.isCompletedExceptionally()) {
+            return snapshot;
+        }
+        CompletableFuture<String> fresh = git.executeAsync(
             repositoryName,
             "rev-list", "--max-parents=0", "HEAD"
         ).thenApply(output -> {
@@ -242,6 +244,9 @@ public class GitReviewNotesManager {
             }
             return commits[0].trim();
         });
+        fresh.whenComplete((_, ex) -> { if (ex != null) this.cachedRootCommit = null; });
+        this.cachedRootCommit = fresh;
+        return fresh;
     }
 
     private CompletableFuture<Void> fetchAllNotes(String reviewId, List<String> streamPaths) {
@@ -348,18 +353,40 @@ public class GitReviewNotesManager {
     }
 
     private CompletableFuture<Map<String, String>> collectExpectedRefStates(List<String> refs) {
-        List<CompletableFuture<Map.Entry<String, String>>> futures = refs.stream()
-            .map(ref -> resolveRefOidOrZero(ref).thenApply(oid -> Map.entry(ref, oid)))
-            .toList();
-
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenApply(ignored -> {
-                Map<String, String> expectedRefStates = new LinkedHashMap<>();
-                for (CompletableFuture<Map.Entry<String, String>> future : futures) {
-                    Map.Entry<String, String> entry = future.join();
-                    expectedRefStates.put(entry.getKey(), entry.getValue());
+        if (refs.isEmpty()) {
+            return CompletableFuture.completedFuture(new LinkedHashMap<>());
+        }
+        List<String> args = new ArrayList<>();
+        args.add("for-each-ref");
+        args.add("--format=%(objectname) %(refname)");
+        args.addAll(refs);
+        return git.executeAsync(repositoryName, args.toArray(new String[0]))
+            .thenApply(output -> {
+                Map<String, String> result = new LinkedHashMap<>();
+                for (String ref : refs) {
+                    result.put(ref, ZERO_OID);
                 }
-                return expectedRefStates;
+                if (output != null && !output.isBlank()) {
+                    for (String line : output.trim().split("\n")) {
+                        line = line.trim();
+                        if (line.isEmpty()) continue;
+                        int space = line.indexOf(' ');
+                        if (space > 0) {
+                            String oid = line.substring(0, space);
+                            String refname = line.substring(space + 1).trim();
+                            if (result.containsKey(refname)) {
+                                result.put(refname, oid);
+                            }
+                        }
+                    }
+                }
+                return result;
+            })
+            .exceptionally(ex -> {
+                LOGGER.warn("for-each-ref failed, defaulting all refs to ZERO_OID: {}", ex.getMessage());
+                Map<String, String> fallback = new LinkedHashMap<>();
+                for (String ref : refs) fallback.put(ref, ZERO_OID);
+                return fallback;
             });
     }
 
@@ -526,10 +553,19 @@ public class GitReviewNotesManager {
     }
 
     private CompletableFuture<Void> forceResetAllFromRemote(String reviewId, List<String> streamPaths) {
-        List<CompletableFuture<Void>> futures = streamPaths.stream()
-            .map(sp -> forceResetFromRemote(reviewId, sp))
-            .toList();
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+        if (streamPaths.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        List<String> args = new ArrayList<>();
+        args.add("fetch");
+        args.add(REMOTE);
+        for (String sp : streamPaths) {
+            String ref = NOTES_REF_PREFIX + reviewId + "/" + sp;
+            args.add("+" + ref + ":" + ref);
+        }
+        return git.executeAsync(repositoryName, args.toArray(new String[0]))
+            .thenApply(_ -> (Void) null)
+            .exceptionally(_ -> null);
     }
 
     private static final int MAX_WRITE_RETRIES = 3;

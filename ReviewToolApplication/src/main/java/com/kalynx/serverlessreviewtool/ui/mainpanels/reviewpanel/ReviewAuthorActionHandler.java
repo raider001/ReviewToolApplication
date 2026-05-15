@@ -108,14 +108,24 @@ public class ReviewAuthorActionHandler {
             current.hasClosedHistory() || isTerminalStatus(targetStatus)
         );
 
-        CompletableFuture<Map<String, List<String>>> snapshotFuture = isTerminalStatus(targetStatus)
-            ? reviewContextManager.captureReviewCommitSnapshots(
-                updatedContext.reviewId, updatedContext.getRepositories(),
-                updatedContext.getBranch(), updatedContext.getBaseBranch(), currentUser)
-            : CompletableFuture.completedFuture(Map.of());
-
         List<String> repoNames = current.repositories.stream().map(Repository::getName).toList();
         String primaryRepo = current.repositories.getFirst().getName();
+
+        CompletableFuture<Map<String, List<String>>> snapshotFuture;
+        if (isTerminalStatus(targetStatus)) {
+            snapshotFuture = reviewContextManager.loadLatestReviewCommits(current.reviewId, primaryRepo)
+                .thenCompose(existing -> {
+                    if (!existing.isEmpty()) {
+                        LOGGER.debug("Reusing existing snapshot for review {} in {}", current.reviewId, primaryRepo);
+                        return CompletableFuture.completedFuture(Map.of());
+                    }
+                    return reviewContextManager.captureReviewCommitSnapshots(
+                        updatedContext.reviewId, updatedContext.getRepositories(),
+                        updatedContext.getBranch(), updatedContext.getBaseBranch(), currentUser);
+                });
+        } else {
+            snapshotFuture = CompletableFuture.completedFuture(Map.of());
+        }
 
         snapshotFuture
             .thenCompose(ignored -> reviewContextManager.saveReviewMetadata(updatedContext))
