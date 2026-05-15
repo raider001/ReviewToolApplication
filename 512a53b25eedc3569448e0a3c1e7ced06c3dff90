@@ -1,0 +1,1 @@
+{"id":"019e2aac-da24-709e-b5da-cef92db61f8b","timestamp":"2026-05-15T08:07:11.652964Z","editor":"Sir CommitsALot","data":"This task Breaks out the HMI Components that are themed into a seperate directory. The intent is to allow extensions to the HMI menus in the plugin tool."}
