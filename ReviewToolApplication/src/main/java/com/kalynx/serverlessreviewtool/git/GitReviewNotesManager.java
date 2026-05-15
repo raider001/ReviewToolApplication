@@ -192,7 +192,19 @@ public class GitReviewNotesManager {
         );
     }
 
-    private CompletableFuture<Void> createSecondaryReviewReference(String repoName, String reviewId, String editor, List<String> commits, String branch, String baseBranch) {
+    /**
+     * Creates a secondary review reference in the specified repository, writing branch and commit metadata
+     * to that repository's git notes so it is discoverable as part of the review.
+     *
+     * @param repoName the name of the secondary repository
+     * @param reviewId the review identifier
+     * @param editor the editor/author creating the reference
+     * @param commits the commit hashes to record, may be empty
+     * @param branch the review branch name
+     * @param baseBranch the base branch name
+     * @return future completing when the secondary reference is written and pushed
+     */
+    public CompletableFuture<Void> createSecondaryReviewReference(String repoName, String reviewId, String editor, List<String> commits, String branch, String baseBranch) {
         GitReviewNotesManager secondaryManager = new GitReviewNotesManager(git, repoName);
 
         List<String> streamPaths = new ArrayList<>();
@@ -234,19 +246,39 @@ public class GitReviewNotesManager {
         if (snapshot != null && !snapshot.isCompletedExceptionally()) {
             return snapshot;
         }
-        CompletableFuture<String> fresh = git.executeAsync(
-            repositoryName,
-            "rev-list", "--max-parents=0", "HEAD"
-        ).thenApply(output -> {
-            String[] commits = output.trim().split("\n");
-            if (commits.length == 0 || commits[0].trim().isEmpty()) {
-                throw new IllegalStateException("No root commit found in repository " + repositoryName);
-            }
-            return commits[0].trim();
-        });
+        CompletableFuture<String> fresh = resolveRootCommit();
         fresh.whenComplete((_, ex) -> { if (ex != null) this.cachedRootCommit = null; });
         this.cachedRootCommit = fresh;
         return fresh;
+    }
+
+    private CompletableFuture<String> resolveRootCommit() {
+        return git.executeAsync(repositoryName, "rev-list", "--max-parents=0", "HEAD")
+            .thenApply(output -> {
+                String first = output.trim().split("\n")[0].trim();
+                if (first.isEmpty()) {
+                    throw new RuntimeException(
+                        "Repository '" + repositoryName + "' has no commits. " +
+                        "Push at least one commit to the remote before creating a review.");
+                }
+                return first;
+            })
+            .exceptionally(_ -> null)
+            .thenCompose(headResult -> {
+                if (headResult != null) {
+                    return CompletableFuture.completedFuture(headResult);
+                }
+                return git.executeAsync(repositoryName, "rev-list", "--max-parents=0", "--remotes")
+                    .thenApply(output -> {
+                        String first = output.trim().split("\n")[0].trim();
+                        if (first.isEmpty()) {
+                            throw new RuntimeException(
+                                "Repository '" + repositoryName + "' has no reachable commits. " +
+                                "Ensure the remote has at least one commit and the repository has been fetched.");
+                        }
+                        return first;
+                    });
+            });
     }
 
     private CompletableFuture<Void> fetchAllNotes(String reviewId, List<String> streamPaths) {

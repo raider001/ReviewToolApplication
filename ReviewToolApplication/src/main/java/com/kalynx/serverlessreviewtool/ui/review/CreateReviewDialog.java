@@ -119,10 +119,7 @@ public class CreateReviewDialog extends ReviewFormDialog {
             .exceptionally(ex -> {
                 LoadingStateManager.getInstance().stopLoading("create-review");
                 Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                String errorMessage = cause instanceof IllegalArgumentException
-                    ? cause.getMessage()
-                    : "Failed to create review: " + cause.getMessage();
-
+                String errorMessage = resolveErrorMessage(cause, branch, baseBranch);
                 SwingUtilities.invokeLater(() -> ThemedOptionPane.showError(this, errorMessage));
                 LOGGER.error("Failed to create review {}: {}", reviewId, cause.getMessage(), cause);
                 return null;
@@ -135,6 +132,29 @@ public class CreateReviewDialog extends ReviewFormDialog {
             throw new RuntimeException("No URL configured for repository: " + repoName);
         }
         return repo.getUrl();
+    }
+
+    private String resolveErrorMessage(Throwable cause, String branch, String baseBranch) {
+        if (cause instanceof IllegalArgumentException) {
+            return cause.getMessage();
+        }
+        String msg = cause.getMessage();
+        if (msg == null) {
+            return "An unexpected error occurred while creating the review.";
+        }
+        if (msg.contains("has no reachable commits") || msg.contains("has no commits")) {
+            return msg;
+        }
+        if (msg.contains("ambiguous argument 'HEAD'") || msg.contains("unknown revision or path not in the working tree")) {
+            return "Cannot create review: one or more selected repositories has no commits on its default branch.\n" +
+                   "Branches requested: '" + baseBranch + "' → '" + branch + "'.\n" +
+                   "Ensure both branches exist on the remote and have at least one commit.";
+        }
+        if (msg.startsWith("Git command failed:")) {
+            return "Failed to create review due to a Git error.\n" +
+                   "Verify that all selected repositories are accessible and the branches exist on the remote.";
+        }
+        return "Failed to create review: " + msg;
     }
 
     private List<String> extractCommitHashes(List<String> commitMessages) {
