@@ -1,6 +1,21 @@
 {
   "repositories": [
     {
+      "name": "java-backend-service",
+      "location": "file://${user.home}/.serverless-review-tool/mock-repos/java-backend-service",
+      "poll_rate": 60000
+    },
+    {
+      "name": "python-api-service",
+      "location": "file://${user.home}/.serverless-review-tool/mock-repos/python-api-service",
+      "poll_rate": 60000
+    },
+    {
+      "name": "react-frontend-app",
+      "location": "file://${user.home}/.serverless-review-tool/mock-repos/react-frontend-app",
+      "poll_rate": 60000
+    },
+    {
       "name": "serverless-code-review-tool",
       "location": "https://github.com/raider001/serverless-code-review-tool.git",
       "poll_rate": 60000
@@ -28,11 +43,6 @@
     {
       "name": "ReviewToolDefaultSyntaxHighlighterPlugin",
       "location": "https://github.com/raider001/ReviewToolDefaultSyntaxHighlighterPlugin.git",
-      "poll_rate": 60000
-    },
-    {
-      "name": "KalynxSwingCustomTheme",
-      "location": "https://github.com/raider001/KalynxSwingCustomTheme.git",
       "poll_rate": 60000
     }
   ]
