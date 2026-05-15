@@ -394,6 +394,36 @@ public class ReviewContextManager {
         return reviewerManager.removeReviewer(reviewId, reviewerName, repositoryNames);
     }
 
+    /**
+     * Adds secondary repository references for an existing review. Writes git notes to each new
+     * repository, so they are discoverable as part of the review on next load.
+     *
+     * @param reviewContext the current review context, used to derive primary repo, branch info, and author
+     * @param newRepoNames names of the repositories to add as secondary references
+     * @return future that completes when all secondary references have been written and pushed
+     */
+    public CompletableFuture<Void> addSecondaryRepositories(ReviewContext reviewContext, List<String> newRepoNames) {
+        if (newRepoNames == null || newRepoNames.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        if (reviewContext == null || reviewContext.repositories.isEmpty()) {
+            LOGGER.warn("No review context or repositories, cannot add secondary repositories");
+            return CompletableFuture.completedFuture(null);
+        }
+
+        String primaryRepoName = reviewContext.repositories.getFirst().getName();
+        String branch = reviewContext.getBranch() != null ? reviewContext.getBranch() : "";
+        String baseBranch = reviewContext.getBaseBranch() != null ? reviewContext.getBaseBranch() : "";
+        String editor = reviewContext.author != null ? reviewContext.author : "system";
+
+        GitReviewNotesManager primaryManager = notesManagerFactory.create(primaryRepoName);
+        List<CompletableFuture<Void>> futures = newRepoNames.stream()
+            .map(repoName -> primaryManager.createSecondaryReviewReference(
+                repoName, reviewContext.reviewId, editor, List.of(), branch, baseBranch))
+            .toList();
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+    }
+
     private ReviewContext applyContext(ReviewContext ctx) {
         if (ctx != null) {
             setReviewContext(ctx);

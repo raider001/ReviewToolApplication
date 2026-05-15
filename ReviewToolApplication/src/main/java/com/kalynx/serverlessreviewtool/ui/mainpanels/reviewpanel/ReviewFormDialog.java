@@ -159,7 +159,7 @@ public abstract class ReviewFormDialog extends ThemedPopupDialog {
             });
     }
 
-    private CompletableFuture<List<String>> fetchBranchesWithFallback(
+    protected CompletableFuture<List<String>> fetchBranchesWithFallback(
             String repoName, Repository repo) {
         if (repo != null && repo.getUrl() != null && !repo.getUrl().isEmpty()) {
             return git.listBranchesRemote(repo.getUrl())

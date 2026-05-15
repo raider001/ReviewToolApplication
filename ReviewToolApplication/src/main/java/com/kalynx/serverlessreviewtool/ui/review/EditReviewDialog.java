@@ -21,8 +21,10 @@ import java.awt.Component;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 public class EditReviewDialog extends ReviewFormDialog {
@@ -40,6 +42,10 @@ public class EditReviewDialog extends ReviewFormDialog {
     private List<ReviewerInfo> lastSavedReviewers;
     private List<String> lastSavedRepositories;
     private boolean suppressRepositoryChangeHandling;
+
+    private volatile String loadedBranch;
+    private volatile String loadedBaseBranch;
+    private boolean applyingBranchFilter;
 
     public EditReviewDialog(Component parent,
                             ReviewContext context,
@@ -80,12 +86,17 @@ public class EditReviewDialog extends ReviewFormDialog {
 
                 SwingUtilities.invokeLater(() -> {
                     if (branch != null) {
+                        loadedBranch = branch;
                         sourcePanel.setBranchName(branch);
                     }
                     if (baseBranch != null) {
+                        loadedBaseBranch = baseBranch;
                         sourcePanel.setReviewAgainstBranch(baseBranch);
                     }
                     sourcePanel.setEnabled(false);
+                    if (loadedBranch != null) {
+                        fetchBranchesForAllRepositories();
+                    }
                 });
             })
             .exceptionally(error -> {
@@ -139,6 +150,7 @@ public class EditReviewDialog extends ReviewFormDialog {
 
         models.selectedReviewers.addChangeListener(this::onReviewersChanged);
         models.selectedRepositories.addChangeListener(this::onRepositoriesChanged);
+        models.availableRepositories.addChangeListener(this::onAvailableRepositoriesChanged);
     }
 
     private void onReviewersChanged(List<ReviewerInfo> newReviewers) {
@@ -234,9 +246,18 @@ public class EditReviewDialog extends ReviewFormDialog {
         String operationId = "edit-review-repositories-" + UUID.randomUUID();
         loadingStateManager.startLoading(operationId);
 
+        List<String> newRepos = repositories.stream()
+            .filter(r -> !lastSavedRepositories.contains(r))
+            .collect(Collectors.toList());
+
         ReviewContext updatedContext = buildUpdatedContext();
 
-        reviewContextManager.saveReviewMetadata(updatedContext)
+        CompletableFuture<Void> metadataSave = reviewContextManager.saveReviewMetadata(updatedContext);
+        CompletableFuture<Void> secondaryRepoSave = newRepos.isEmpty()
+            ? CompletableFuture.completedFuture(null)
+            : reviewContextManager.addSecondaryRepositories(updatedContext, newRepos);
+
+        CompletableFuture.allOf(metadataSave, secondaryRepoSave)
             .thenRun(() -> SwingUtilities.invokeLater(() -> {
                 loadingStateManager.stopLoading(operationId);
                 lastSavedRepositories = new ArrayList<>(repositories);
@@ -263,6 +284,68 @@ public class EditReviewDialog extends ReviewFormDialog {
         String message = "Failed to save repositories: " + error.getMessage();
         ThemedOptionPane.showError(this, message);
         models.selectedRepositories.setValue(new ArrayList<>(lastSavedRepositories));
+    }
+
+    private void onAvailableRepositoriesChanged(List<String> repos) {
+        if (!applyingBranchFilter && loadedBranch != null && repos != null) {
+            applyBranchFilter(repos);
+        }
+    }
+
+    private void applyBranchFilter(List<String> repos) {
+        List<String> alreadySelected = models.selectedRepositories.getValue();
+        Set<String> alreadySelectedSet = alreadySelected != null ? new HashSet<>(alreadySelected) : Set.of();
+        List<String> filtered = repos.stream()
+            .filter(r -> alreadySelectedSet.contains(r) || repoHasBranch(r))
+            .collect(Collectors.toList());
+        applyingBranchFilter = true;
+        try {
+            models.availableRepositories.setValue(filtered);
+        } finally {
+            applyingBranchFilter = false;
+        }
+    }
+
+    private boolean repoHasBranch(String repoName) {
+        Repository repo = repositoryManager.getRepositoryByName(repoName);
+        if (repo == null) {
+            return false;
+        }
+        List<String> branches = repo.getBranches();
+        if (branches.isEmpty()) {
+            return true;
+        }
+        if (!branches.contains(loadedBranch)) {
+            return false;
+        }
+        return loadedBaseBranch == null || branches.contains(loadedBaseBranch);
+    }
+
+    private void fetchBranchesForAllRepositories() {
+        List<Repository> allRepos = repositoryManager.getRepositories();
+        List<CompletableFuture<Map.Entry<String, List<String>>>> futures = allRepos.stream()
+            .map(repo -> fetchBranchesWithFallback(repo.getName(), repo)
+                .thenApply(branches -> Map.entry(repo.getName(), branches))
+                .exceptionally(_ -> Map.entry(repo.getName(), repo.getBranches())))
+            .toList();
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenAccept(ignored -> {
+                Map<String, List<String>> branchesByRepo = futures.stream()
+                    .map(CompletableFuture::join)
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                SwingUtilities.invokeLater(() -> {
+                    repositoryManager.updateBranchesForRepositories(branchesByRepo);
+                    List<String> currentAvailable = models.availableRepositories.getValue();
+                    if (currentAvailable != null && loadedBranch != null) {
+                        applyBranchFilter(currentAvailable);
+                    }
+                });
+            })
+            .exceptionally(ignored -> {
+                LOGGER.error("Failed to fetch branches for repository filter");
+                return null;
+            });
     }
 
     private void saveField(String fieldName, Runnable onSuccess) {
@@ -364,8 +447,8 @@ public class EditReviewDialog extends ReviewFormDialog {
             updatedReviewers,
             updatedRepositories,
             originalContext.comments,
-            originalContext.getBranch(),
-            originalContext.getBaseBranch(),
+            originalContext.getBranch() != null ? originalContext.getBranch() : loadedBranch,
+            originalContext.getBaseBranch() != null ? originalContext.getBaseBranch() : loadedBaseBranch,
             originalContext.hasClosedHistory()
         );
     }
