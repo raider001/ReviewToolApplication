@@ -234,19 +234,35 @@ public class GitReviewNotesManager {
         if (snapshot != null && !snapshot.isCompletedExceptionally()) {
             return snapshot;
         }
-        CompletableFuture<String> fresh = git.executeAsync(
-            repositoryName,
-            "rev-list", "--max-parents=0", "HEAD"
-        ).thenApply(output -> {
-            String[] commits = output.trim().split("\n");
-            if (commits.length == 0 || commits[0].trim().isEmpty()) {
-                throw new IllegalStateException("No root commit found in repository " + repositoryName);
-            }
-            return commits[0].trim();
-        });
+        CompletableFuture<String> fresh = resolveRootCommit();
         fresh.whenComplete((_, ex) -> { if (ex != null) this.cachedRootCommit = null; });
         this.cachedRootCommit = fresh;
         return fresh;
+    }
+
+    private CompletableFuture<String> resolveRootCommit() {
+        return git.executeAsync(repositoryName, "rev-list", "--max-parents=0", "--remotes")
+            .thenCompose(output -> {
+                String trimmed = output.trim();
+                if (!trimmed.isEmpty()) {
+                    return CompletableFuture.completedFuture(trimmed);
+                }
+                return git.executeAsync(repositoryName, "rev-list", "--max-parents=0", "HEAD")
+                    .exceptionally(ex -> {
+                        throw new RuntimeException(
+                            "Repository '" + repositoryName + "' has no reachable commits. " +
+                            "Ensure the remote has at least one commit and the repository has been fetched.", ex);
+                    });
+            })
+            .thenApply(output -> {
+                String first = output.trim().split("\n")[0].trim();
+                if (first.isEmpty()) {
+                    throw new RuntimeException(
+                        "Repository '" + repositoryName + "' has no commits. " +
+                        "Push at least one commit to the remote before creating a review.");
+                }
+                return first;
+            });
     }
 
     private CompletableFuture<Void> fetchAllNotes(String reviewId, List<String> streamPaths) {
