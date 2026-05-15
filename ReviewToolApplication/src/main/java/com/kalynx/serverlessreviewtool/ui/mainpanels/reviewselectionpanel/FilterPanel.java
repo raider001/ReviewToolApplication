@@ -65,7 +65,7 @@ public class FilterPanel extends ThemedPanel {
         titleFilterTextField.getDocument().addDocumentListener(textFieldListener);
         authorFilterTextField.getDocument().addDocumentListener(textFieldListener);
 
-        repositories.addActionListener(ignored -> debounceTimer.trigger());
+        repositories.addActionListener(debounceTimer::trigger);
     }
 
     private void configureLayout() {

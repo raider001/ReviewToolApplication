@@ -64,7 +64,7 @@ public class ReviewSelectionPanel extends ThemedPanel implements Refreshable {
     }
 
     private void configureActions() {
-        createReviewButton.addActionListener(ignored -> onCreateReview());
+        createReviewButton.addActionListener(this::onCreateReview);
     }
 
     /**

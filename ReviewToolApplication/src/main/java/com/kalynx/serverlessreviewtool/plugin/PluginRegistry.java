@@ -72,6 +72,17 @@ public class PluginRegistry {
     }
 
     /**
+     * Returns every registered plugin regardless of type.
+     *
+     * @return flat list of all registered plugin instances
+     */
+    public List<Plugin> getAllPlugins() {
+        return registry.values().stream()
+            .flatMap(List::stream)
+            .toList();
+    }
+
+    /**
      * Returns all registered plugins implementing the given interface.
      *
      * @param type the plugin interface class
@@ -84,17 +95,6 @@ public class PluginRegistry {
             .filter(type::isInstance)
             .map(type::cast)
             .toList();
-    }
-
-    /**
-     * Returns the first registered plugin for the given interface, if any.
-     *
-     * @param type the plugin interface class
-     * @param <T>  the plugin type
-     * @return optional containing the first implementation, or empty
-     */
-    public <T extends Plugin> Optional<T> getPlugin(Class<T> type) {
-        return getPlugins(type).stream().findFirst();
     }
 
     /**
@@ -120,7 +120,7 @@ public class PluginRegistry {
     private Class<?> resolvePluginInterface(Plugin plugin) {
         Class<?> cls = plugin.getClass();
         Class<?> resolvedSuperclassType = null;
-        while (cls != null && !cls.equals(Object.class)) {
+        while (!cls.equals(Object.class)) {
             Class<?> superClass = cls.getSuperclass();
             if (superClass == null) {
                 break;

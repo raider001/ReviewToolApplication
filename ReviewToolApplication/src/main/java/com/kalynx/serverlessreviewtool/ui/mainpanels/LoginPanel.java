@@ -89,9 +89,9 @@ public class LoginPanel extends ThemedPanel {
     }
 
     private void setupListeners() {
-        loginButton.addActionListener(ignored -> onLogin());
-        usernameField.addActionListener(ignored -> onLogin());
-        validationField.addActionListener(ignored -> onLogin());
+        loginButton.addActionListener(this::onLogin);
+        usernameField.addActionListener(this::onLogin);
+        validationField.addActionListener(this::onLogin);
     }
 
     private void onLogin() {

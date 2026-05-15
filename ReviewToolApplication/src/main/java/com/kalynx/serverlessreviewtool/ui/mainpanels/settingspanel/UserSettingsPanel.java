@@ -57,7 +57,7 @@ public class UserSettingsPanel extends ThemedPanel {
     }
 
     private void setupListeners() {
-        switchUserButton.addActionListener(ignored -> settingsManager.logoutUser());
+        switchUserButton.addActionListener(settingsManager::logoutUser);
         settingsManager.addUserNameListener(ignored -> {
             updateIdentityDisplay();
             updateLoginStatus();

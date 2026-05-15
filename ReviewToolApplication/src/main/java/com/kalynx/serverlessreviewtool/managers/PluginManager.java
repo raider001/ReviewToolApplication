@@ -1,11 +1,6 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.plugin.NotificationPlugin;
-import com.kalynx.serverlessreviewtool.plugin.PluginRegistry;
-import com.kalynx.serverlessreviewtool.plugin.RepositoryListUpdate;
-import com.kalynx.serverlessreviewtool.plugin.ReviewListUpdate;
-import com.kalynx.serverlessreviewtool.plugin.SyntaxHighlighterPlugin;
-import com.kalynx.serverlessreviewtool.plugin.UserPlugin;
+import com.kalynx.serverlessreviewtool.plugin.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -157,6 +152,27 @@ public class PluginManager {
         return pluginRegistry.getPlugins(SyntaxHighlighterPlugin.class).stream()
             .filter(plugin -> fileExtension.equalsIgnoreCase(plugin.getFileExtension()))
             .findFirst();
+    }
+
+    /**
+     * Returns all {@link PluginPanel} instances contributed by registered plugins.
+     * Plugins that return {@code null} from {@link com.kalynx.serverlessreviewtool.plugin.Plugin#getUI()}
+     * are silently skipped.
+     *
+     * @return list of plugin panels, may be empty
+     */
+    public List<PluginPanel> getPluginPanels() {
+        return pluginRegistry.getAllPlugins().stream()
+            .map(plugin -> {
+                try {
+                    return plugin.getUI();
+                } catch (Exception e) {
+                    LOGGER.warn("Plugin {} threw an exception from getUI()", plugin.getClass().getName(), e);
+                    return null;
+                }
+            })
+            .filter(java.util.Objects::nonNull)
+            .toList();
     }
 
     /**

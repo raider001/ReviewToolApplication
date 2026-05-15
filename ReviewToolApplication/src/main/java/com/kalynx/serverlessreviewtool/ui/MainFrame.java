@@ -13,6 +13,7 @@ import com.kalynx.serverlessreviewtool.notifications.ReviewNotificationService;
 import com.kalynx.serverlessreviewtool.notifications.ReviewStatusChangeCondition;
 import com.kalynx.serverlessreviewtool.notifications.ReviewerAddedCondition;
 import com.kalynx.serverlessreviewtool.notifications.SystemNotifier;
+import com.kalynx.serverlessreviewtool.plugin.PluginPanel;
 import com.kalynx.swingtheme.themedcomponents.QuickButton;
 import com.kalynx.swingtheme.themedcomponents.ThemedFrame;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
@@ -31,12 +32,25 @@ import com.kalynx.serverlessreviewtool.utils.ConsoleLogBridge;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.function.BooleanSupplier;
 
 /**
- * MainFrame - The main application window
- * Contains ReviewSelectionPanel by default with navigation to Settings and Help
+ * MainFrame - The main application window.
+ * All navigation panels — built-in and plugin-contributed — are registered as
+ * {@link NavEntry} objects at initialisation time and sorted by priority when
+ * the menu is (re)built.
  */
 public class MainFrame extends ThemedFrame {
+
+    private static final int PRIORITY_REVIEWS = 10;
+    private static final int PRIORITY_REVIEW_CODE = 20;
+    private static final int PRIORITY_SETTINGS = 30;
+    private static final int PRIORITY_LOGS = 40;
+    private static final int PRIORITY_HELP = 80;
+    private static final int PRIORITY_LOGOUT = 90;
 
     private final SettingsManager settingsManager;
     private final PluginManager pluginManager;
@@ -58,6 +72,8 @@ public class MainFrame extends ThemedFrame {
     private HelpPanel helpPanel;
     private ThemedPanel currentPanel;
     private QuickButton refreshButton;
+
+    private final List<NavEntry> registeredEntries = new ArrayList<>();
 
     @DI
     public MainFrame(
@@ -97,7 +113,6 @@ public class MainFrame extends ThemedFrame {
         }
     }
 
-
     private void setupLoginStateListener() {
         settingsManager.addUserNameListener(ignored -> {
             if (needsLogin()) {
@@ -123,7 +138,7 @@ public class MainFrame extends ThemedFrame {
 
     private void setupRefreshButton() {
         refreshButton = createRefreshButton();
-        refreshButton.addActionListener(ignored -> onRefresh());
+        refreshButton.addActionListener(this::onRefresh);
         getTitleBar().addActionButton(refreshButton);
     }
 
@@ -165,6 +180,25 @@ public class MainFrame extends ThemedFrame {
         notificationService.addCondition(new ReviewStatusChangeCondition());
         notificationService.addCondition(new ReviewerAddedCondition());
         reviewContextManager.addListener(notificationService::onContextChanged);
+
+        registerNavEntries();
+    }
+
+    private void registerNavEntries() {
+        registeredEntries.add(new NavEntry("Reviews",     PRIORITY_REVIEWS,     this::showReviewPanel));
+        registeredEntries.add(new NavEntry("Review Code", PRIORITY_REVIEW_CODE, this::showCodeReviewPanel));
+        registeredEntries.add(new NavEntry("Settings",    PRIORITY_SETTINGS,    this::showSettingsPanel));
+        registeredEntries.add(new NavEntry("Logs",        PRIORITY_LOGS,        this::showLogsPanel));
+        registeredEntries.add(new NavEntry("Help",        PRIORITY_HELP,        this::showHelpPanel));
+        registeredEntries.add(new NavEntry("Log Out",     PRIORITY_LOGOUT,      this::onLogout,        settingsManager::isLoggedIn));
+
+        for (PluginPanel pluginPanel : pluginManager.getPluginPanels()) {
+            ThemedPanel wrapper = new ThemedPanel(new BorderLayout());
+            wrapper.add(pluginPanel.getPanel(), BorderLayout.CENTER);
+            String title = pluginPanel.getTitle();
+            registeredEntries.add(new NavEntry(title, pluginPanel.getMenuPriority(),
+                () -> showPluginPanel(wrapper, title)));
+        }
     }
 
     private void setupReviewDoubleClickHandler() {
@@ -178,29 +212,16 @@ public class MainFrame extends ThemedFrame {
 
     private void setupMenuItems() {
         if (needsLogin()) {
-            setMenuItems(
-                new MenuItem("Login", this::showLoginPanel)
-            );
+            setMenuItems(new MenuItem("Login", this::showLoginPanel));
             return;
         }
-        if (settingsManager.isLoggedIn()) {
-            setMenuItems(
-                new MenuItem("Reviews", this::showReviewPanel),
-                new MenuItem("Review Code", this::showCodeReviewPanel),
-                new MenuItem("Settings", this::showSettingsPanel),
-                new MenuItem("Logs", this::showLogsPanel),
-                new MenuItem("Help", this::showHelpPanel),
-                new MenuItem("Log Out", this::onLogout)
-            );
-            return;
-        }
-        setMenuItems(
-            new MenuItem("Reviews", this::showReviewPanel),
-            new MenuItem("Review Code", this::showCodeReviewPanel),
-            new MenuItem("Settings", this::showSettingsPanel),
-            new MenuItem("Logs", this::showLogsPanel),
-            new MenuItem("Help", this::showHelpPanel)
-        );
+
+        MenuItem[] items = registeredEntries.stream()
+            .filter(e -> e.visible().getAsBoolean())
+            .sorted(Comparator.comparingInt(NavEntry::priority))
+            .map(e -> new MenuItem(e.title(), e.action()))
+            .toArray(MenuItem[]::new);
+        setMenuItems(items);
     }
 
     private void onLogout() {
@@ -253,6 +274,15 @@ public class MainFrame extends ThemedFrame {
         setWindowTitle("Serverless Review Tool - Help");
     }
 
+    private void showPluginPanel(ThemedPanel panel, String title) {
+        if (needsLogin()) {
+            showLoginPanel();
+            return;
+        }
+        switchPanel(panel);
+        setWindowTitle("Serverless Review Tool - " + title);
+    }
+
     private void switchPanel(ThemedPanel newPanel) {
         if (needsLogin() && newPanel != loginPanel) {
             newPanel = loginPanel;
@@ -285,6 +315,28 @@ public class MainFrame extends ThemedFrame {
 
     private void updateRefreshButtonVisibility() {
         refreshButton.setVisible(currentPanel instanceof Refreshable);
+    }
+
+    /**
+     * Describes a single navigation entry in the slide-out menu.
+     *
+     * @param title    the menu label
+     * @param priority sort order (1–100); lower values appear nearer the top
+     * @param action   the action executed when the menu item is selected
+     * @param visible  evaluated before each menu rebuild to determine whether this entry is shown
+     */
+    private record NavEntry(String title, int priority, Runnable action, BooleanSupplier visible) {
+
+        /**
+         * Convenience constructor for entries that are always visible.
+         *
+         * @param title    the menu label
+         * @param priority sort order (1–100)
+         * @param action   the action executed when the menu item is selected
+         */
+        NavEntry(String title, int priority, Runnable action) {
+            this(title, priority, action, () -> true);
+        }
     }
 }
 

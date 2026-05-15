@@ -227,11 +227,11 @@ public abstract class ReviewFormDialog extends ThemedPopupDialog {
         sep.setForeground(themeManager.getCurrentTheme().getBorderColor());
 
         ThemedButton cancelBtn = new ThemedButton("Cancel");
-        cancelBtn.addActionListener(ignored -> dispose());
+        cancelBtn.addActionListener(this::dispose);
 
         ThemedButton submitBtn = new ThemedButton(getSubmitButtonLabel());
         submitBtn.setAccentStyle(true);
-        submitBtn.addActionListener(ignored -> handleSubmit());
+        submitBtn.addActionListener(this::handleSubmit);
 
         footer.add(sep, "growx, wrap, gapbottom 10, span");
         footer.add(Box.createGlue(), "growx");

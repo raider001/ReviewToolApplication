@@ -84,8 +84,8 @@ public class SyntaxHighlighterManualTestHarness {
         frame.add(topPanel, BorderLayout.NORTH);
         frame.add(splitPane, BorderLayout.CENTER);
 
-        languageSelector.addActionListener(_ -> loadSelectedSample());
-        darkThemeToggle.addActionListener(_ -> renderSelected());
+        languageSelector.addActionListener(e -> loadSelectedSample());
+        darkThemeToggle.addActionListener(e -> renderSelected());
         sourceArea.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {

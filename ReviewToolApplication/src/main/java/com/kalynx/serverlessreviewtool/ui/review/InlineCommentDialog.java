@@ -12,6 +12,9 @@ import com.kalynx.swingtheme.theme.icons.AlertIcon;
 import com.kalynx.swingtheme.theme.icons.CheckIcon;
 import net.miginfocom.swing.MigLayout;
 
+import com.kalynx.swingtheme.themedcomponents.FocusCondition;
+import com.kalynx.swingtheme.themedcomponents.ThemedRootPane;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
@@ -72,13 +75,18 @@ public class InlineCommentDialog extends JDialog {
         setResizable(true);
     }
 
+    @Override
+    protected JRootPane createRootPane() {
+        return new ThemedRootPane();
+    }
+
     private void setupKeyboardShortcuts() {
-        JRootPane rootPane = getRootPane();
+        ThemedRootPane rootPane = (ThemedRootPane) getRootPane();
 
         rootPane.registerKeyboardAction(
-            e -> dispose(),
+            this::dispose,
             KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
-            JComponent.WHEN_IN_FOCUSED_WINDOW
+            FocusCondition.WHEN_IN_FOCUSED_WINDOW
         );
 
         newCommentArea.registerKeyboardAction(
@@ -137,16 +145,16 @@ public class InlineCommentDialog extends JDialog {
         ThemedPanel buttonRow = new ThemedPanel(new MigLayout("", "[][][grow]", "[]"));
 
         resolveToggleButton = new ThemedButton("Mark as Needs Resolution");
-        resolveToggleButton.addActionListener(e -> handleResolveToggle());
+        resolveToggleButton.addActionListener(this::handleResolveToggle);
         buttonRow.add(resolveToggleButton, "cell 0 0");
 
         ThemedButton codeButton = new ThemedButton("<>");
         codeButton.setToolTipText("Insert code snippet");
-        codeButton.addActionListener(e -> handleInsertCode());
+        codeButton.addActionListener(this::handleInsertCode);
         buttonRow.add(codeButton, "cell 1 0");
 
         addButton = new ThemedButton("Add Comment");
-        addButton.addActionListener(e -> handleAddComment());
+        addButton.addActionListener(this::handleAddComment);
         buttonRow.add(addButton, "cell 2 0, align right");
 
         panel.add(buttonRow, "cell 0 1");
@@ -172,12 +180,12 @@ public class InlineCommentDialog extends JDialog {
         List<ReviewComment> allComments = reviewContext.getCommentsForFile(file.getPath());
         List<ReviewComment> lineComments = allComments.stream()
             .filter(c -> c.getLineNumber() == lineNumber)
-            .collect(Collectors.toList());
+            .toList();
 
         conversationNeedsResolution = !lineComments.isEmpty() &&
-            lineComments.stream().anyMatch(c -> c.needsResolution());
+            lineComments.stream().anyMatch(ReviewComment::needsResolution);
         conversationResolved = conversationNeedsResolution &&
-            lineComments.stream().filter(c -> c.needsResolution()).allMatch(c -> c.isResolved());
+            lineComments.stream().filter(ReviewComment::needsResolution).allMatch(ReviewComment::isResolved);
 
         updateResolutionUI();
 
@@ -254,8 +262,8 @@ public class InlineCommentDialog extends JDialog {
                     .filter(c -> c.getLineNumber() == lineNumber && c.needsResolution() && c.isResolved())
                     .toList();
 
-                if (!lineComments.isEmpty() && lineComments.get(0).getResolvedBy() != null) {
-                    resolvedByUser = lineComments.get(0).getResolvedBy();
+                if (!lineComments.isEmpty() && lineComments.getFirst().getResolvedBy() != null) {
+                    resolvedByUser = lineComments.getFirst().getResolvedBy();
                 }
 
                 ThemedLabel resolvedByLabel = new ThemedLabel("• Marked resolved by " + resolvedByUser);
@@ -327,18 +335,16 @@ public class InlineCommentDialog extends JDialog {
         resolveToggleButton.setText("Saving...");
 
         reviewContextManager.saveAllComments(reviewContext.reviewId, lineComments)
-            .thenRun(() -> {
-                SwingUtilities.invokeLater(() -> {
-                    loadingStateManager.stopLoading(operationId);
-                    resolveToggleButton.setEnabled(true);
-                    addButton.setEnabled(true);
-                    loadExistingComments();
+            .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                loadingStateManager.stopLoading(operationId);
+                resolveToggleButton.setEnabled(true);
+                addButton.setEnabled(true);
+                loadExistingComments();
 
-                    if (onCommentAdded != null) {
-                        onCommentAdded.run();
-                    }
-                });
-            })
+                if (onCommentAdded != null) {
+                    onCommentAdded.run();
+                }
+            }))
             .exceptionally(error -> {
                 SwingUtilities.invokeLater(() -> {
                     loadingStateManager.stopLoading(operationId);
@@ -385,23 +391,21 @@ public class InlineCommentDialog extends JDialog {
         addButton.setText("Saving...");
 
         reviewContextManager.saveComment(reviewContext.reviewId, newComment)
-            .thenRun(() -> {
-                SwingUtilities.invokeLater(() -> {
-                    loadingStateManager.stopLoading(operationId);
-                    addButton.setEnabled(true);
-                    newCommentArea.setEnabled(true);
-                    addButton.setText("Add Comment");
-                    newCommentArea.setText("");
-                    loadExistingComments();
+            .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                loadingStateManager.stopLoading(operationId);
+                addButton.setEnabled(true);
+                newCommentArea.setEnabled(true);
+                addButton.setText("Add Comment");
+                newCommentArea.setText("");
+                loadExistingComments();
 
-                    if (onCommentAdded != null) {
-                        onCommentAdded.run();
-                    }
+                if (onCommentAdded != null) {
+                    onCommentAdded.run();
+                }
 
-                    JScrollBar vertical = ((JScrollPane) commentsContainer.getParent().getParent()).getVerticalScrollBar();
-                    vertical.setValue(vertical.getMaximum());
-                });
-            })
+                JScrollBar vertical = ((JScrollPane) commentsContainer.getParent().getParent()).getVerticalScrollBar();
+                vertical.setValue(vertical.getMaximum());
+            }))
             .exceptionally(error -> {
                 SwingUtilities.invokeLater(() -> {
                     loadingStateManager.stopLoading(operationId);

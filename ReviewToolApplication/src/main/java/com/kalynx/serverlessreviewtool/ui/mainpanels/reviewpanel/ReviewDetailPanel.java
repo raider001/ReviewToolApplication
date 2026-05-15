@@ -223,10 +223,10 @@ public class ReviewDetailPanel extends ThemedPanel {
     }
 
     private void setupListeners() {
-        editReviewButton.addActionListener(ignored -> handleEditReview());
-        closeReviewButton.addActionListener(ignored -> handleCloseOrJoinReview());
-        markInProgressButton.addActionListener(ignored -> handleMarkInProgress());
-        cancelReviewButton.addActionListener(ignored -> handleCancelReview());
+        editReviewButton.addActionListener(this::handleEditReview);
+        closeReviewButton.addActionListener(this::handleCloseOrJoinReview);
+        markInProgressButton.addActionListener(this::handleMarkInProgress);
+        cancelReviewButton.addActionListener(this::handleCancelReview);
     }
 
     private void handleEditReview() {

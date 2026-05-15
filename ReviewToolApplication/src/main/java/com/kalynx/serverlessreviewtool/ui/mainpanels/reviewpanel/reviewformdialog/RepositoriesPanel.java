@@ -66,7 +66,7 @@ public class RepositoriesPanel extends ThemedPanel {
             }
         });
 
-        addButton.addActionListener(ignored -> {
+        addButton.addActionListener(() -> {
             Object selected = repositorySelector.getSelectedItem();
             if (selected != null && !selected.toString().trim().isEmpty()) {
                 BindingLifecycleHelper.addToBadgeList(selectedRepositoriesModel, selected.toString());

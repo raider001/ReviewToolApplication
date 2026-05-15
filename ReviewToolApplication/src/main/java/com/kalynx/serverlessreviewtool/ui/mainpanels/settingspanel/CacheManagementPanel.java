@@ -6,15 +6,12 @@ import com.kalynx.swingtheme.themedcomponents.ThemedLabel;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.swingtheme.themedcomponents.ThemedTitledBorder;
 import net.miginfocom.swing.MigLayout;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Comparator;
 import java.util.stream.Stream;
 
 public class CacheManagementPanel extends ThemedPanel {
@@ -40,7 +37,7 @@ public class CacheManagementPanel extends ThemedPanel {
     }
 
     private void setupListeners() {
-        clearCacheButton.addActionListener(ignored -> onClearCache());
+        clearCacheButton.addActionListener(this::onClearCache);
     }
 
     private void onClearCache() {

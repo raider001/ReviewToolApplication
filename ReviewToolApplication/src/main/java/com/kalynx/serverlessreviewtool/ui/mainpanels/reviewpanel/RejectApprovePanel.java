@@ -36,8 +36,8 @@ public class RejectApprovePanel extends ThemedPanel {
     private void setupButtons() {
         approveButton.setAccentStyle(true);
 
-        requestChangesButton.addActionListener(e -> onRequestChanges());
-        approveButton.addActionListener(e -> onApprove());
+        requestChangesButton.addActionListener(this::onRequestChanges);
+        approveButton.addActionListener(this::onApprove);
     }
 
     private void onRequestChanges() {

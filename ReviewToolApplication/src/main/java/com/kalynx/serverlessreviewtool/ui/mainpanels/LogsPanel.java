@@ -3,6 +3,8 @@ package com.kalynx.serverlessreviewtool.ui.mainpanels;
 import com.kalynx.swingtheme.themedcomponents.*;
 import com.kalynx.swingtheme.theme.ThemeManager;
 import net.miginfocom.swing.MigLayout;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import javax.swing.text.*;
@@ -18,6 +20,7 @@ import java.util.List;
  */
 public class LogsPanel extends ThemedPanel {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(LogsPanel.class);
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
     private static final int MAX_LOG_LINES = 10000;
 
@@ -105,8 +108,8 @@ public class LogsPanel extends ThemedPanel {
     }
 
     private void setupListeners() {
-        clearButton.addActionListener(ignored -> clearLogs());
-        displayLevelComboBox.addActionListener(ignored -> onDisplayLevelChanged());
+        clearButton.addActionListener(this::clearLogs);
+        displayLevelComboBox.addActionListener(this::onDisplayLevelChanged);
     }
 
     /**
@@ -159,7 +162,7 @@ public class LogsPanel extends ThemedPanel {
                 }
 
             } catch (BadLocationException e) {
-                e.printStackTrace();
+                LOGGER.error("Failed to append log entry to document", e);
             }
         });
     }
@@ -195,7 +198,7 @@ public class LogsPanel extends ThemedPanel {
             logEntries.clear();
             document.remove(0, document.getLength());
         } catch (BadLocationException e) {
-            e.printStackTrace();
+            LOGGER.error("Failed to clear log document", e);
         }
     }
 
@@ -219,7 +222,7 @@ public class LogsPanel extends ThemedPanel {
             }
             scrollToBottom();
         } catch (BadLocationException e) {
-            e.printStackTrace();
+            LOGGER.error("Failed to render filtered log entries", e);
         }
     }
 
@@ -252,5 +255,4 @@ public class LogsPanel extends ThemedPanel {
 
     private record LogEntry(String timestamp, LogLevel level, String message) {}
 }
-
 
