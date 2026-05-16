@@ -89,7 +89,7 @@
                 <executions>
                     <execution>
                         <id>copy-default-plugins-for-local-testing</id>
-                        <phase>process-resources</phase>
+                        <phase>package</phase>
                         <goals>
                             <goal>copy-dependencies</goal>
                         </goals>

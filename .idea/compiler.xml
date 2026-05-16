@@ -9,6 +9,7 @@
         <module name="review-tool-default-syntax-highlighter-plugin" />
         <module name="review-tool-application" />
         <module name="review-tool-plugin-interface" />
+        <module name="kalynx-swing-custom-theme" />
         <module name="review-tool-default-notification-plugin" />
         <module name="review-tool-default-user-plugin" />
       </profile>
@@ -19,6 +20,7 @@
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="kalynx-swing-custom-theme" options="-Xlint:all" />
       <module name="review-tool-application" options="-Xlint:all" />
       <module name="review-tool-default-notification-plugin" options="-Xlint:all" />
       <module name="review-tool-default-plugins" options="-Xlint:all" />

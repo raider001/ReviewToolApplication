@@ -194,9 +194,9 @@ public class MainFrame extends ThemedFrame {
 
         for (PluginPanel pluginPanel : pluginManager.getPluginPanels()) {
             ThemedPanel wrapper = new ThemedPanel(new BorderLayout());
-            wrapper.add(pluginPanel.getPanel(), BorderLayout.CENTER);
-            String title = pluginPanel.getTitle();
-            registeredEntries.add(new NavEntry(title, pluginPanel.getMenuPriority(),
+            wrapper.add(pluginPanel.panel(), BorderLayout.CENTER);
+            String title = pluginPanel.title();
+            registeredEntries.add(new NavEntry(title, pluginPanel.priority(),
                 () -> showPluginPanel(wrapper, title)));
         }
     }
