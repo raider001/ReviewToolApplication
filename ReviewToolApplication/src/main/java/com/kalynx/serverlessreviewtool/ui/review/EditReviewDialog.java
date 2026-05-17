@@ -12,7 +12,6 @@ import com.kalynx.swingtheme.theme.LoadingStateManager;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.ReviewFormDialog;
 import com.kalynx.serverlessreviewtool.ui.models.reviewpanel.reviewformdialog.ReviewFormModels;
 import com.kalynx.serverlessreviewtool.models.review.StreamEntry;
-import com.kalynx.swingtheme.utils.Validator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,9 +35,6 @@ public class EditReviewDialog extends ReviewFormDialog {
     private final LoadingStateManager loadingStateManager;
     private Runnable onReviewUpdated;
 
-    private String lastSavedTitle;
-    private String lastSavedAuthor;
-    private String lastSavedSummary;
     private List<ReviewerInfo> lastSavedReviewers;
     private List<String> lastSavedRepositories;
     private boolean suppressRepositoryChangeHandling;
@@ -58,9 +54,6 @@ public class EditReviewDialog extends ReviewFormDialog {
         this.reviewContextManager = reviewContextManager;
         this.loadingStateManager = LoadingStateManager.getInstance();
 
-        this.lastSavedTitle = context.title;
-        this.lastSavedAuthor = context.author;
-        this.lastSavedSummary = context.summary;
         this.lastSavedReviewers = new ArrayList<>(context.reviewers);
         this.lastSavedRepositories = context.repositories.stream()
             .map(Repository::getName)
@@ -113,19 +106,34 @@ public class EditReviewDialog extends ReviewFormDialog {
     }
 
     @Override
-    protected boolean shouldShowFooter() {
-        return false;
-    }
-
-    @Override
     protected String getSubmitButtonLabel() {
-        return "Save Changes";
+        return "Update";
     }
 
     @Override
     protected void onFormSubmit() {
-        confirmed = true;
-        dispose();
+        String operationId = "edit-review-update-" + UUID.randomUUID();
+        loadingStateManager.startLoading(operationId);
+
+        ReviewContext updatedContext = buildUpdatedContext();
+
+        reviewContextManager.saveReviewMetadata(updatedContext)
+            .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                loadingStateManager.stopLoading(operationId);
+
+                if (onReviewUpdated != null) {
+                    onReviewUpdated.run();
+                }
+                confirmed = true;
+                dispose();
+            }))
+            .exceptionally(error -> {
+                SwingUtilities.invokeLater(() -> {
+                    loadingStateManager.stopLoading(operationId);
+                    ThemedOptionPane.showError(this, "Failed to save review: " + error.getMessage());
+                });
+                return null;
+            });
     }
 
     public void setOnReviewUpdated(Runnable callback) {
@@ -133,21 +141,6 @@ public class EditReviewDialog extends ReviewFormDialog {
     }
 
     private void setupAutoSaveListeners() {
-        detailsPanel.setupValidation(
-            this::validateTitle,
-            title -> saveField("title", () -> lastSavedTitle = title)
-        );
-
-        detailsPanel.setupAuthorValidation(
-            this::validateAuthor,
-            author -> saveField("author", () -> lastSavedAuthor = author)
-        );
-
-        detailsPanel.setupSummaryValidation(
-            this::validateSummary,
-            summary -> saveField("summary", () -> lastSavedSummary = summary)
-        );
-
         models.selectedReviewers.addChangeListener(this::onReviewersChanged);
         models.selectedRepositories.addChangeListener(this::onRepositoriesChanged);
         models.availableRepositories.addChangeListener(this::onAvailableRepositoriesChanged);
@@ -348,63 +341,6 @@ public class EditReviewDialog extends ReviewFormDialog {
             });
     }
 
-    private void saveField(String fieldName, Runnable onSuccess) {
-        String operationId = "edit-review-" + fieldName + "-" + UUID.randomUUID();
-        loadingStateManager.startLoading(operationId);
-
-        ReviewContext updatedContext = buildUpdatedContext();
-
-        reviewContextManager.saveReviewMetadata(updatedContext)
-            .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                loadingStateManager.stopLoading(operationId);
-                onSuccess.run();
-                if (onReviewUpdated != null) {
-                    onReviewUpdated.run();
-                }
-            }))
-            .exceptionally(error -> {
-                SwingUtilities.invokeLater(() -> {
-                    loadingStateManager.stopLoading(operationId);
-                    handleSaveError(fieldName, error);
-                });
-                return null;
-            });
-    }
-
-    private void handleSaveError(String fieldName, Throwable error) {
-        String message = "Failed to save " + fieldName + ": " + error.getMessage();
-        ThemedOptionPane.showError(this, message);
-
-        switch (fieldName) {
-            case "title":
-                models.title.setValue(lastSavedTitle);
-                break;
-            case "author":
-                models.author.setValue(lastSavedAuthor);
-                break;
-            case "summary":
-                models.summary.setValue(lastSavedSummary);
-                break;
-        }
-    }
-
-    private Validator.ValidationResult validateTitle(String title) {
-        if (title == null || title.trim().isEmpty()) {
-            return Validator.ValidationResult.invalid("Title cannot be empty");
-        }
-        return Validator.ValidationResult.valid();
-    }
-
-    private Validator.ValidationResult validateAuthor(String author) {
-        if (isValidAuthor(author)) {
-            return Validator.ValidationResult.invalid(getInvalidAuthorMessage());
-        }
-        return Validator.ValidationResult.valid();
-    }
-
-    private Validator.ValidationResult validateSummary(String summary) {
-        return Validator.ValidationResult.valid();
-    }
 
     private ReviewContext buildUpdatedContext() {
         List<ReviewerInfo> updatedReviewers = new ArrayList<>(originalContext.reviewers);
