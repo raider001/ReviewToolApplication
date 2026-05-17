@@ -53,7 +53,7 @@ public class CommitSelectorPanel extends ThemedPanel {
 
         ThemedLabel viewLabel = new ThemedLabel("View:");
         viewModeComboBox = new ThemedComboBox<>(DiffViewMode.values());
-        viewModeComboBox.setSelectedItem(DiffViewMode.SIDE_BY_SIDE);
+        viewModeComboBox.setSelectedItem(DiffViewMode.UNIFIED);
         viewModeComboBox.addActionListener(this::onViewModeChanged);
 
         add(viewLabel);

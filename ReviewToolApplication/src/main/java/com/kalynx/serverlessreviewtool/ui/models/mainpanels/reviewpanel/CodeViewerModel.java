@@ -51,8 +51,8 @@ public class CodeViewerModel {
     private void initializeDefaults() {
         availableFiles.setValue(new ArrayList<>());
         selectedFile.setValue(null);
-        diffMode.setValue(DiffMode.SIDE_BY_SIDE);
-        
+        diffMode.setValue(DiffMode.UNIFIED);
+
         startCommit.setValue(null);
         endCommit.setValue(null);
         availableCommits.setValue(new ArrayList<>());

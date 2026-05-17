@@ -28,7 +28,7 @@ public class DiffViewerPanel extends ThemedPanel {
     private final UnifiedDiffPanel unifiedDiffPanel;
     private final ThemedPanel contentPanel = new ThemedPanel(new CardLayout());
 
-    private DiffViewMode currentMode = DiffViewMode.SIDE_BY_SIDE;
+    private DiffViewMode currentMode = DiffViewMode.UNIFIED;
     private ReviewFile currentFile;
     private volatile int pendingTopLineRestore = -1;
 
