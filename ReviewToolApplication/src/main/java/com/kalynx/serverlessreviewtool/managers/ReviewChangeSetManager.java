@@ -11,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -333,44 +332,20 @@ public class ReviewChangeSetManager {
             return CompletableFuture.completedFuture(new ArrayList<>());
         }
 
-        List<CompletableFuture<List<String>>> perCommitFutures = commits.stream()
-            .map(commitHash -> loadChangedFilesForCommit(repositoryName, commitHash))
-            .toList();
+        String newestCommit = commits.getFirst();
+        String oldestCommit = commits.getLast();
+        String baseRef = oldestCommit + "^";
 
-        return CompletableFuture.allOf(perCommitFutures.toArray(new CompletableFuture[0]))
-            .thenApply(ignored -> {
-                Map<String, String> statusByPath = new LinkedHashMap<>();
-                for (CompletableFuture<List<String>> future : perCommitFutures) {
-                    for (String line : future.join()) {
-                        String[] parts = line.trim().split("\\s+", 2);
-                        if (parts.length < 2) continue;
-                        statusByPath.put(parts[1], parts[0]);
-                    }
-                }
+        LOGGER.debug("Computing review file diff for review {} in repo {} using range {}...{}",
+            reviewId, repositoryName, baseRef, newestCommit);
 
-                List<ReviewFile> files = new ArrayList<>();
-                for (Map.Entry<String, String> entry : statusByPath.entrySet()) {
-                    files.add(parseChangedFileLine(entry.getValue() + " " + entry.getKey(),
-                        repositoryName, baseBranch, branch));
-                }
-                return files;
-            });
-    }
-
-    private CompletableFuture<List<String>> loadChangedFilesForCommit(String repositoryName, String commitHash) {
-        if (commitHash == null || commitHash.isBlank()) {
-            return CompletableFuture.completedFuture(List.of());
-        }
-        return git.executeAsync(repositoryName,
-                "show", "--name-status", "--pretty=format:", "--root", commitHash)
-            .thenApply(output -> Arrays.stream(output.split("\\R"))
-                .map(String::trim)
-                .filter(line -> !line.isEmpty())
-                .toList())
+        return git.executeAsync(repositoryName, "rev-parse", "--verify", baseRef)
+            .thenCompose(ignored -> git.listChangedFiles(repositoryName, baseRef, newestCommit))
+            .thenApply(paths -> toReviewFiles(paths, repositoryName, baseBranch, branch))
             .exceptionally(error -> {
-                LOGGER.warn("Failed to load changed files for commit {} in repo {}: {}",
-                    commitHash, repositoryName, error.getMessage());
-                return List.of();
+                LOGGER.warn("Failed to compute diff range {}...{} for review {} in repo {} (oldest commit may be a root): {}",
+                    baseRef, newestCommit, reviewId, repositoryName, error.getMessage());
+                return new ArrayList<>();
             });
     }
 

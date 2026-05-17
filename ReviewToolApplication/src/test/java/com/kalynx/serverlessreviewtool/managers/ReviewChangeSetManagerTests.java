@@ -203,20 +203,23 @@ class ReviewChangeSetManagerTests {
     }
 
     @Test
-    void loadFilesFromStoredReviewCommits_withStoredCommits_loadsByCommit() throws Exception {
+    void loadFilesFromStoredReviewCommits_withStoredCommits_diffsBetweenOldestParentAndNewest() throws Exception {
         Repository repo = new Repository(REPO, "", "file:///repo");
-        String commitHash = "abc123def";
+        String newestHash = "deadbeef1";
+        String oldestHash = "abc123def";
 
-        when(git.executeAsync(eq(REPO), eq("show"), eq("--name-status"), eq("--pretty=format:"),
-                eq("--root"), eq(commitHash)))
-            .thenReturn(CompletableFuture.completedFuture("A\tsrc/NewFile.java\n"));
+        when(git.executeAsync(eq(REPO), eq("rev-parse"), eq("--verify"), eq(oldestHash + "^")))
+            .thenReturn(CompletableFuture.completedFuture(oldestHash + "^resolved"));
+        when(git.listChangedFiles(eq(REPO), eq(oldestHash + "^"), eq(newestHash)))
+            .thenReturn(CompletableFuture.completedFuture(List.of("A src/NewFile.java")));
 
         List<ReviewFile> result = changeSetManager.loadFilesFromStoredReviewCommits(
             "review-1", List.of(repo), REVIEW_BRANCH, BASE_BRANCH,
-            Map.of(REPO, List.of(commitHash))).get(3, TimeUnit.SECONDS);
+            Map.of(REPO, List.of(newestHash, oldestHash))).get(3, TimeUnit.SECONDS);
 
         assertNotNull(result);
         assertEquals(1, result.size());
+        assertEquals(FileChangeType.ADDED, result.getFirst().getChangeType());
     }
 
     @Test

@@ -173,7 +173,7 @@ class ReviewMetadataLoaderTests {
 
         GitReviewNotesManager.ReviewMetadata metadata = new GitReviewNotesManager.ReviewMetadata(
             List.of(), List.of(), List.of(stringEntry("author", "author")),
-            List.of(), List.of(), List.of(), List.of(stringEntry("system", "OPEN")), List.of());
+            List.of(), List.of(), List.of(), List.of(stringEntry("system", "OPEN")), List.of(), List.of());
 
         when(notesManager.readTitles(anyString()))
             .thenReturn(CompletableFuture.completedFuture(List.of(stringEntry("x", "something"))));
@@ -367,6 +367,7 @@ class ReviewMetadataLoaderTests {
             List.of(stringEntry("author", "feature")),
             List.of(stringEntry("author", "main")),
             List.of(stringEntry("author", "CANCELLED"), stringEntry("author", "OPEN")),
+            List.of(),
             List.of()
         );
 
@@ -395,6 +396,7 @@ class ReviewMetadataLoaderTests {
             List.of(stringEntry("author", "feature")),
             List.of(stringEntry("author", "main")),
             List.of(stringEntry("author", "OPEN")),
+            List.of(),
             List.of()
         );
 
@@ -430,7 +432,8 @@ class ReviewMetadataLoaderTests {
             List.of(stringEntry(author, branch)),
             List.of(stringEntry(author, baseBranch)),
             List.of(stringEntry(author, status)),
-            reviewers
+            reviewers,
+            List.of()
         );
     }
 
