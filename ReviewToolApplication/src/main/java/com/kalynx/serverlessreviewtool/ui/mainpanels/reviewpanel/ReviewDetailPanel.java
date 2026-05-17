@@ -87,7 +87,7 @@ public class ReviewDetailPanel extends ThemedPanel {
 
         add(authorLabel, "cell 0 1 3 1");
         add(reviewerPanel, "cell 0 2 3 1");
-        add(summaryLabel, "cell 0 3 3 1");
+        add(summaryLabel, "cell 0 3 3 1, growx");
     }
 
     private void configureReviewContextListeners() {

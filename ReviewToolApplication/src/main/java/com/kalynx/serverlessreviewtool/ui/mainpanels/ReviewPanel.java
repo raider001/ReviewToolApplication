@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.SwingUtilities;
 import javax.swing.JSplitPane;
+import java.awt.Dimension;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -141,11 +142,14 @@ public class ReviewPanel extends ThemedPanel {
     }
 
     private void configureLayout() {
+        reviewDetailPanel.setMinimumSize(new Dimension(0, 0));
+        codePanel.setMinimumSize(new Dimension(0, 0));
+
         ThemedSplitPane splitPane = new ThemedSplitPane(JSplitPane.VERTICAL_SPLIT, reviewDetailPanel, codePanel);
         splitPane.setResizeWeight(0.2);
         splitPane.setDividerSize(6);
         splitPane.setDividerLocation(200);
-        
+
         setLayout(new MigLayout("fill, insets 10", "[grow]", "[grow]0[]"));
         add(splitPane, "grow, wrap");
         add(rejectApprovePanel, "growx");
