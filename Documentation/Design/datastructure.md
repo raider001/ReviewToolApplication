@@ -94,7 +94,8 @@ refs/notes/reviews/{review-id}/
 │   ├── commits                            # NDJSON append stream
 │   ├── primaryRepository                  # NDJSON append stream ("true"/"false")
 │   ├── branch                             # NDJSON append stream
-│   └── baseBranch                         # NDJSON append stream
+│   ├── baseBranch                         # NDJSON append stream
+│   └── repositoryActive                   # NDJSON append stream (per-repository active flag)
 ├── reviewers                              # NDJSON append stream
 └── comments/                              # Comment threads (one namespace per thread)
     └── {comment-id}/                      # Individual comment thread
@@ -285,6 +286,43 @@ Every appended NDJSON line in a stream uses this structure:
 }
 ```
 
+---
+
+### Repository Active Flag
+**Storage**: `refs/notes/reviews/{uuid}/metadata/repositoryActive`
+
+**Purpose**: Tracks whether each secondary repository is an active participant in the review. Supports soft-delete — a repository can be deactivated without losing any of its stored comment or commit history, and can be reactivated later to bring that history back into context.
+
+**Structure**:
+```json
+{
+  "id": "01890a5d-f9h0-774b-bcce-a2b3c45d6789",
+  "timestamp": "2026-04-23T14:00:00.123456Z",
+  "editor": "john@example.com",
+  "data": {
+    "repositoryName": "backend-service",
+    "active": false
+  }
+}
+```
+
+**Field Descriptions**:
+- **`editor`**: The user who changed the active state
+- **`data.repositoryName`**: The repository being flagged
+- **`data.active`**: `true` = repository is active in this review; `false` = deactivated (soft-deleted)
+
+**Resolution Rules**:
+- **Latest entry per `repositoryName` wins** — multiple entries may exist; only the most recent timestamp matters.
+- **No entry = implicitly active** — backwards compatible with all reviews created before this stream existed.
+- **Written to the primary repository only** — stored alongside all other review metadata.
+
+**Example** (append entries showing a repository being removed then re-added):
+```
+refs/notes/reviews/550e8400-.../metadata/repositoryActive
+  {"id":"...","timestamp":"2026-04-23T14:00:00Z","editor":"alice@example.com","data":{"repositoryName":"backend-service","active":false}}
+  {"id":"...","timestamp":"2026-04-24T09:30:00Z","editor":"bob@example.com","data":{"repositoryName":"backend-service","active":true}}
+```
+
 
 ---
 
@@ -433,6 +471,7 @@ refs/notes/reviews/{review-id}/comments/{comment-id}/
 - Base Branch: `refs/notes/reviews/{uuid}/metadata/baseBranch`
 - Status: `refs/notes/reviews/{uuid}/metadata/status`
 - Commits: `refs/notes/reviews/{uuid}/metadata/commits`
+- Repository Active Flag: `refs/notes/reviews/{uuid}/metadata/repositoryActive`
 - Reviewers: `refs/notes/reviews/{uuid}/reviewers`
 - Comment Metadata: `refs/notes/reviews/{uuid}/comments/{comment-id}/metadata`
 - Comment Text: `refs/notes/reviews/{uuid}/comments/{comment-id}/text`
@@ -448,7 +487,6 @@ refs/notes/reviews/{review-id}/comments/{comment-id}/
 
 ## References
 
-- [Mission Directive](../MISSION_DIRECTIVE.md)
 - [Git Notes Documentation](https://git-scm.com/docs/git-notes)
 
 ---
