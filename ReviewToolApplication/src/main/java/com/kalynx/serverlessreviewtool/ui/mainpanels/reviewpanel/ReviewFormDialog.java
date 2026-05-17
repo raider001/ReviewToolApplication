@@ -6,6 +6,7 @@ import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.swingtheme.themedcomponents.*;
 import com.kalynx.swingtheme.theme.ThemeManager;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.reviewformdialog.*;
+import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.reviewformdialog.ReviewDetailsPanel;
 import com.kalynx.serverlessreviewtool.ui.models.reviewpanel.reviewformdialog.ReviewFormModels;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
 import net.miginfocom.swing.MigLayout;
@@ -91,7 +92,7 @@ public abstract class ReviewFormDialog extends ThemedPopupDialog {
         content.setLayout(new MigLayout(
             "fill, insets " + INSET + ", gap " + GAP + " " + GAP,
             "[grow]",
-            "[]" + GAP + "[]" + GAP + "[]" + GAP + "[]"
+            "[grow]" + GAP + "[]" + GAP + "[]" + GAP + "[]"
         ));
 
         content.add(detailsPanel, "grow, wmin 0, wrap");

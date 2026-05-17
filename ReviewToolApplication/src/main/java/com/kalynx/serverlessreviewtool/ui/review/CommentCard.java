@@ -1,6 +1,7 @@
 package com.kalynx.serverlessreviewtool.ui.review;
 
 import com.kalynx.serverlessreviewtool.models.ReviewComment;
+import com.kalynx.swingtheme.themedcomponents.ThemedHtmlLabel;
 import com.kalynx.swingtheme.themedcomponents.ThemedLabel;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.swingtheme.theme.Theme;
@@ -10,12 +11,13 @@ import net.miginfocom.swing.MigLayout;
 import java.awt.*;
 
 /**
- * CommentCard - Simple chat-style comment display for flat conversations
+ * CommentCard - Simple chat-style comment display for flat conversations.
  */
 public class CommentCard extends ThemedPanel {
 
     private final ThemeManager themeManager = ThemeManager.getInstance();
     private final ReviewComment comment;
+    private final ThemedHtmlLabel textLabel = new ThemedHtmlLabel();
 
     public CommentCard(ReviewComment comment) {
         this.comment = comment;
@@ -37,52 +39,52 @@ public class CommentCard extends ThemedPanel {
         topPanel.setOpaque(false);
 
         ThemedLabel authorLabel = new ThemedLabel(comment.getAuthor());
-        authorLabel.setFont(new Font("Segoe UI", Font.BOLD, themeManager.scale(11)));
+        authorLabel.setFont(new Font(themeManager.getBaseFontFamily(), Font.BOLD, themeManager.scale(11)));
         authorLabel.setForeground(theme.getAccentColor());
         topPanel.add(authorLabel);
 
         ThemedLabel timeLabel = new ThemedLabel(comment.getTimestamp());
-        timeLabel.setFont(new Font("Segoe UI", Font.PLAIN, themeManager.scale(9)));
+        timeLabel.setFont(new Font(themeManager.getBaseFontFamily(), Font.PLAIN, themeManager.scale(9)));
         timeLabel.setForeground(theme.getSecondaryTextColor());
         topPanel.add(timeLabel);
 
         add(topPanel, "growx, wrap");
 
-        String formattedText = formatCommentText(comment.getText(), theme);
-        ThemedLabel textLabel = new ThemedLabel(formattedText);
-        textLabel.setFont(new Font("Segoe UI", Font.PLAIN, themeManager.scale(11)));
+        textLabel.setFont(new Font(themeManager.getBaseFontFamily(), Font.PLAIN, themeManager.scale(11)));
+        textLabel.setHtmlContent(formatCommentText(comment.getText()));
         add(textLabel, "growx");
 
         setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
     }
 
-    private String formatCommentText(String text, Theme theme) {
-        StringBuilder html = new StringBuilder("<html>");
+    private String formatCommentText(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
 
+        if (text.trim().toLowerCase().startsWith("<html")) {
+            return text;
+        }
+
+        if (!text.contains("```")) {
+            return escapeHtml(text).replace("\n", "<br>");
+        }
+
+        StringBuilder html = new StringBuilder();
         String[] parts = text.split("```");
         boolean isCode = false;
 
         for (String part : parts) {
             if (isCode) {
-                Color codeBg = theme.getInputBackground();
-                String bgColor = String.format("#%02x%02x%02x",
-                    codeBg.getRed(), codeBg.getGreen(), codeBg.getBlue());
-                Color codeText = theme.getForegroundColor();
-                String textColor = String.format("#%02x%02x%02x",
-                    codeText.getRed(), codeText.getGreen(), codeText.getBlue());
-
-                html.append("<div style='background-color: ").append(bgColor)
-                    .append("; padding: 4px; margin: 4px 0; font-family: Consolas, monospace; font-size: 10px; color: ")
-                    .append(textColor).append(";'><pre>")
+                html.append("<pre>")
                     .append(escapeHtml(part.trim()))
-                    .append("</pre></div>");
+                    .append("</pre>");
             } else {
                 html.append(escapeHtml(part).replace("\n", "<br>"));
             }
             isCode = !isCode;
         }
 
-        html.append("</html>");
         return html.toString();
     }
 
@@ -94,10 +96,3 @@ public class CommentCard extends ThemedPanel {
                    .replace("'", "&#x27;");
     }
 }
-
-
-
-
-
-
-

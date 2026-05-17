@@ -12,6 +12,7 @@ import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
 import com.kalynx.serverlessreviewtool.plugin.NotificationPlugin;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.ThemedSplitPane;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.CodePanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.RejectApprovePanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.ReviewAutoRefreshController;
@@ -30,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.SwingUtilities;
+import javax.swing.JSplitPane;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -139,10 +141,14 @@ public class ReviewPanel extends ThemedPanel {
     }
 
     private void configureLayout() {
-        setLayout(new MigLayout("fill, insets 10", "[grow]", "[]0[grow]0[]"));
-        add(reviewDetailPanel, "cell 0 0, growx, wrap");
-        add(codePanel, "grow, wrap");
-        add(rejectApprovePanel, "cell 0 2, growx");
+        ThemedSplitPane splitPane = new ThemedSplitPane(JSplitPane.VERTICAL_SPLIT, reviewDetailPanel, codePanel);
+        splitPane.setResizeWeight(0.2);
+        splitPane.setDividerSize(6);
+        splitPane.setDividerLocation(200);
+        
+        setLayout(new MigLayout("fill, insets 10", "[grow]", "[grow]0[]"));
+        add(splitPane, "grow, wrap");
+        add(rejectApprovePanel, "growx");
     }
 
     /**

@@ -4,11 +4,7 @@ import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
 import com.kalynx.serverlessreviewtool.models.ReviewerStatus;
-import com.kalynx.swingtheme.themedcomponents.ThemedBadge;
-import com.kalynx.swingtheme.themedcomponents.ThemedButton;
-import com.kalynx.swingtheme.themedcomponents.ThemedConfirmDialog;
-import com.kalynx.swingtheme.themedcomponents.ThemedLabel;
-import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
+import com.kalynx.swingtheme.themedcomponents.*;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.ReviewDetailModel;
 import net.miginfocom.swing.MigLayout;
 import org.slf4j.Logger;
@@ -42,8 +38,8 @@ public class ReviewDetailPanel extends ThemedPanel {
     private final ThemedButton markInProgressButton = new ThemedButton("Mark In Progress");
     private final ThemedButton cancelReviewButton = new ThemedButton("Cancel Review");
 
-    private final ThemedLabel authorLabel = new ThemedLabel("author..");
-    private final ThemedLabel summaryLabel = new ThemedLabel("summary..");
+    private final ThemedLabel authorLabel = new ThemedLabel("");
+    private final ThemedHtmlLabel summaryLabel = new ThemedHtmlLabel("");
 
     private final ThemedPanel reviewerPanel = new ThemedPanel();
 
@@ -68,6 +64,7 @@ public class ReviewDetailPanel extends ThemedPanel {
 
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
         authorLabel.setFont(authorLabel.getFont().deriveFont(Font.ITALIC));
+        authorLabel.setOpaque(false);
 
         configureLayout();
         configureReviewContextListeners();
@@ -89,8 +86,8 @@ public class ReviewDetailPanel extends ThemedPanel {
         add(headerButtonPanel, "cell 2 0");
 
         add(authorLabel, "cell 0 1 3 1");
-        add(summaryLabel, "cell 0 2 3 1");
-        add(reviewerPanel, "cell 0 3 3 1");
+        add(reviewerPanel, "cell 0 2 3 1");
+        add(summaryLabel, "cell 0 3 3 1");
     }
 
     private void configureReviewContextListeners() {
@@ -100,7 +97,11 @@ public class ReviewDetailPanel extends ThemedPanel {
             setLabelText(authorLabel, () -> val != null ? "Authored By " + val : "");
             checkAuthorStatus(val);
         });
-        reviewDetailModel.summary.addChangeListener(val -> setLabelText(summaryLabel, () -> val != null ? val : ""));
+        reviewDetailModel.summary.addChangeListener(val -> {
+            SwingUtilities.invokeLater(() ->
+                summaryLabel.setHtmlContent(val != null ? val : "")
+            );
+        });
         reviewDetailModel.status.addChangeListener(status -> {
             currentStatus = status;
             updateStatusBadge(status);

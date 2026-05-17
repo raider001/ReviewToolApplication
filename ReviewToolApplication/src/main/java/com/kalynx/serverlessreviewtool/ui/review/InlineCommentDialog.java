@@ -33,7 +33,7 @@ public class InlineCommentDialog extends JDialog {
     private final String currentUser;
 
     private ThemedPanel commentsContainer;
-    private ThemedTextArea newCommentArea;
+    private ThemedRichTextEditor newCommentEditor;
     private ThemedButton addButton;
     private ThemedButton resolveToggleButton;
     private ThemedPanel headerPanel;
@@ -89,7 +89,7 @@ public class InlineCommentDialog extends JDialog {
             FocusCondition.WHEN_IN_FOCUSED_WINDOW
         );
 
-        newCommentArea.registerKeyboardAction(
+        newCommentEditor.getEditorPane().registerKeyboardAction(
             e -> handleAddComment(),
             KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, KeyEvent.CTRL_DOWN_MASK),
             JComponent.WHEN_FOCUSED
@@ -132,47 +132,28 @@ public class InlineCommentDialog extends JDialog {
     private ThemedPanel createInputPanel() {
         ThemedPanel panel = new ThemedPanel(new MigLayout("", "[grow]", "[grow,fill][]"));
 
-        newCommentArea = new ThemedTextArea(3, 40);
-        newCommentArea.setLineWrap(true);
-        newCommentArea.setWrapStyleWord(true);
-        newCommentArea.setToolTipText("Press Ctrl+Enter to submit. Use ```code``` for code snippets. Drag divider above to resize.");
-        newCommentArea.setMinimumSize(new Dimension(200, themeManager.scale(70)));
+        newCommentEditor = new ThemedRichTextEditor();
+        newCommentEditor.getEditorPane().setToolTipText("Press Ctrl+Enter to submit. Drag divider above to resize.");
+        newCommentEditor.setMinimumSize(new Dimension(200, themeManager.scale(150)));
 
-        ThemedScrollPane textScrollPane = new ThemedScrollPane(newCommentArea);
-        panel.add(textScrollPane, "cell 0 0, grow, pushy, wmin 200");
+        panel.add(newCommentEditor, "cell 0 0, grow, pushy, wmin 200");
 
 
-        ThemedPanel buttonRow = new ThemedPanel(new MigLayout("", "[][][grow]", "[]"));
+        ThemedPanel buttonRow = new ThemedPanel(new MigLayout("", "[][grow]", "[]"));
 
         resolveToggleButton = new ThemedButton("Mark as Needs Resolution");
         resolveToggleButton.addActionListener(this::handleResolveToggle);
         buttonRow.add(resolveToggleButton, "cell 0 0");
 
-        ThemedButton codeButton = new ThemedButton("<>");
-        codeButton.setToolTipText("Insert code snippet");
-        codeButton.addActionListener(this::handleInsertCode);
-        buttonRow.add(codeButton, "cell 1 0");
-
         addButton = new ThemedButton("Add Comment");
         addButton.addActionListener(this::handleAddComment);
-        buttonRow.add(addButton, "cell 2 0, align right");
+        buttonRow.add(addButton, "cell 1 0, align right");
 
         panel.add(buttonRow, "cell 0 1");
 
         return panel;
     }
 
-    private void handleInsertCode() {
-        String currentText = newCommentArea.getText();
-        int caretPos = newCommentArea.getCaretPosition();
-
-        String codeBlock = "```\n\n```";
-        String newText = currentText.substring(0, caretPos) + codeBlock + currentText.substring(caretPos);
-
-        newCommentArea.setText(newText);
-        newCommentArea.setCaretPosition(caretPos + 4);
-        newCommentArea.requestFocus();
-    }
 
     private void loadExistingComments() {
         commentsContainer.removeAll();
@@ -360,7 +341,7 @@ public class InlineCommentDialog extends JDialog {
     }
 
     private void handleAddComment() {
-        String commentText = newCommentArea.getText().trim();
+        String commentText = newCommentEditor.getHtml().trim();
 
         if (commentText.isEmpty()) {
             ThemedConfirmDialog.showMessage(this, "Error", "Please enter a comment");
@@ -369,7 +350,6 @@ public class InlineCommentDialog extends JDialog {
 
         String commentId = com.kalynx.serverlessreviewtool.utils.UuidV7Generator.generate();
 
-        // Create comment in default state: "just a comment" (not needing resolution)
         ReviewComment newComment = new ReviewComment(
             commentId,
             file.getPath(),
@@ -378,7 +358,7 @@ public class InlineCommentDialog extends JDialog {
             commentText,
             "just now",
             null,
-            false  // Default state: just a comment (not needing resolution)
+            false
         );
 
         reviewContext.addComment(newComment);
@@ -387,16 +367,16 @@ public class InlineCommentDialog extends JDialog {
         loadingStateManager.startLoading(operationId);
 
         addButton.setEnabled(false);
-        newCommentArea.setEnabled(false);
+        newCommentEditor.setEnabled(false);
         addButton.setText("Saving...");
 
         reviewContextManager.saveComment(reviewContext.reviewId, newComment)
             .thenRun(() -> SwingUtilities.invokeLater(() -> {
                 loadingStateManager.stopLoading(operationId);
                 addButton.setEnabled(true);
-                newCommentArea.setEnabled(true);
+                newCommentEditor.setEnabled(true);
                 addButton.setText("Add Comment");
-                newCommentArea.setText("");
+                newCommentEditor.setHtml("");
                 loadExistingComments();
 
                 if (onCommentAdded != null) {
@@ -410,7 +390,7 @@ public class InlineCommentDialog extends JDialog {
                 SwingUtilities.invokeLater(() -> {
                     loadingStateManager.stopLoading(operationId);
                     addButton.setEnabled(true);
-                    newCommentArea.setEnabled(true);
+                    newCommentEditor.setEnabled(true);
                     addButton.setText("Add Comment");
 
                     ThemedConfirmDialog.showMessage(this, "Save Error",

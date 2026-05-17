@@ -25,7 +25,7 @@ public class ReviewDetailsPanel extends ThemedPanel {
     private final ThemeManager themeManager;
     private final ThemedTextField titleField;
     private final ThemedSearchableComboBox authorCombo;
-    private final ThemedTextArea summaryArea;
+    private final ThemedRichTextEditor summaryArea;
 
     private boolean updatingFromModel = false;
     private transient String authorValueOnFocusGained;
@@ -39,7 +39,7 @@ public class ReviewDetailsPanel extends ThemedPanel {
         setLayout(new MigLayout(
             "insets 10 12 12 12, gap " + GAP + " 8",
             "[90!][grow,fill]",
-            "[]8[]8[]"
+            "[]8[]8[grow, fill]"
         ));
         setBorder(ThemedTitledBorder.create("Review Details"));
 
@@ -51,9 +51,7 @@ public class ReviewDetailsPanel extends ThemedPanel {
         authorCombo.setToolTipText("Search for the review author");
         authorCombo.bindTo(availableAuthorsModel);
 
-        summaryArea = new ThemedTextArea(3, 40);
-        summaryArea.setLineWrap(true);
-        summaryArea.setWrapStyleWord(true);
+        summaryArea = new ThemedRichTextEditor();
 
         configureLayout();
         bindToModels(titleModel, authorModel, summaryModel);
@@ -75,8 +73,12 @@ public class ReviewDetailsPanel extends ThemedPanel {
         }));
 
         summaryModel.addChangeListener(value -> SwingUtilities.invokeLater(() -> {
+            String safeValue = value != null ? value : "";
+            if (safeValue.equals(summaryArea.getHtml())) {
+                return;
+            }
             updatingFromModel = true;
-            summaryArea.setText(value != null ? value : "");
+            summaryArea.setHtml(safeValue);
             updatingFromModel = false;
         }));
 
@@ -109,20 +111,20 @@ public class ReviewDetailsPanel extends ThemedPanel {
             }
         });
 
-        summaryArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+        summaryArea.getEditorPane().getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             public void insertUpdate(javax.swing.event.DocumentEvent e) { updateModel(); }
             public void removeUpdate(javax.swing.event.DocumentEvent e) { updateModel(); }
             public void changedUpdate(javax.swing.event.DocumentEvent e) { updateModel(); }
             private void updateModel() {
                 if (!updatingFromModel) {
-                    summaryModel.setValue(summaryArea.getText());
+                    summaryModel.setValue(summaryArea.getHtml());
                 }
             }
         });
 
         if (titleModel.getValue() != null) titleField.setText(titleModel.getValue());
         if (authorModel.getValue() != null) authorCombo.setSelectedItem(authorModel.getValue());
-        if (summaryModel.getValue() != null) summaryArea.setText(summaryModel.getValue());
+        if (summaryModel.getValue() != null) summaryArea.setHtml(summaryModel.getValue());
     }
 
     private void configureLayout() {
@@ -132,13 +134,10 @@ public class ReviewDetailsPanel extends ThemedPanel {
         add(rightLabel("Author:"));
         add(authorCombo, "growx, wmin 0, wrap");
 
-        ThemedScrollPane summaryScroll = new ThemedScrollPane(summaryArea);
-        summaryScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        summaryScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        summaryScroll.setPreferredSize(new Dimension(0, themeManager.scale(SUMMARY_H)));
+        summaryArea.setPreferredSize(new Dimension(0, themeManager.scale(SUMMARY_H)));
 
         add(rightLabel("Summary:"), "aligny top, gaptop 4");
-        add(summaryScroll, "grow, wmin 0");
+        add(summaryArea, "grow, wmin 0");
     }
 
     private ThemedLabel rightLabel(String text) {
@@ -161,7 +160,7 @@ public class ReviewDetailsPanel extends ThemedPanel {
     }
 
     public String getSummary() {
-        return summaryArea.getText();
+        return summaryArea.getHtml();
     }
 
     public void setupValidation(Validator validator, Consumer<String> onValidValueSaved) {
@@ -198,6 +197,24 @@ public class ReviewDetailsPanel extends ThemedPanel {
     }
 
     public void setupSummaryValidation(Validator validator, Consumer<String> onValidValueSaved) {
-        summaryArea.setupValidation(validator, onValidValueSaved);
+        summaryArea.getEditorPane().addFocusListener(new FocusAdapter() {
+            private String valueOnFocusGained;
+
+            @Override
+            public void focusGained(FocusEvent e) {
+                valueOnFocusGained = summaryArea.getHtml();
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                String currentValue = summaryArea.getHtml();
+                if (!currentValue.equals(valueOnFocusGained)) {
+                    Validator.ValidationResult result = validator.validate(currentValue);
+                    if (result.isValid()) {
+                        onValidValueSaved.accept(currentValue);
+                    }
+                }
+            }
+        });
     }
 }
