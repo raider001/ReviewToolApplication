@@ -8,6 +8,7 @@ import com.kalynx.swingtheme.theme.LoadingStateManager;
 import com.kalynx.swingtheme.theme.Theme;
 import com.kalynx.swingtheme.theme.ThemeManager;
 import com.kalynx.swingtheme.theme.WindowResizeHandler;
+import com.kalynx.swingtheme.theme.WindowFrameLoadingIndicator;
 import com.kalynx.swingtheme.theme.icons.AlertIcon;
 import com.kalynx.swingtheme.theme.icons.CheckIcon;
 import net.miginfocom.swing.MigLayout;
@@ -19,19 +20,33 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
+/**
+ * Singleton dialog displaying a single comment thread for a specific file and line.
+ * Use {@link #show} to open or reuse the singleton instance.
+ * Tracks the currently open thread via {@link #getActiveKey()} so other components
+ * (e.g. {@link ReviewCommentsDialog}) can highlight the corresponding row.
+ */
 public class InlineCommentDialog extends JDialog {
+
+    private static InlineCommentDialog instance;
+    private static String activeKey;
+    private static Runnable activeKeyListener;
+    private static final CopyOnWriteArrayList<Runnable> globalCommentChangedListeners = new CopyOnWriteArrayList<>();
 
     private final ThemeManager themeManager = ThemeManager.getInstance();
     private final LoadingStateManager loadingStateManager = LoadingStateManager.getInstance();
-    private final ReviewContext reviewContext;
-    private final ReviewContextManager reviewContextManager;
-    private final ReviewFile file;
-    private final int lineNumber;
-    private final Runnable onCommentAdded;
-    private final String currentUser;
+    private final SettingsManager settingsManager;
+    private ReviewContext reviewContext;
+    private ReviewContextManager reviewContextManager;
+    private String filePath;
+    private int lineNumber;
+    private Runnable onCommentChanged;
+    private String currentUser;
 
+    private CustomTitleBar titleBar;
     private ThemedPanel commentsContainer;
     private ThemedRichTextEditor newCommentEditor;
     private ThemedButton addButton;
@@ -40,19 +55,97 @@ public class InlineCommentDialog extends JDialog {
     private boolean conversationNeedsResolution = false;
     private boolean conversationResolved = false;
 
-    public InlineCommentDialog(Window owner, SettingsManager settingsManager, ReviewContext reviewContext, ReviewContextManager reviewContextManager,
-                               ReviewFile file, int lineNumber, Runnable onCommentAdded) {
+    /**
+     * Opens (or reuses) the singleton {@link InlineCommentDialog} for the given file and line.
+     *
+     * @param owner                parent window
+     * @param settingsManager      settings manager for user info
+     * @param reviewContext        current review context
+     * @param reviewContextManager manager for persisting comment changes
+     * @param filePath             path of the file the thread belongs to
+     * @param lineNumber           line number the thread is attached to
+     * @param onCommentChanged     callback invoked after any comment or resolution change
+     */
+    public static void show(Window owner, SettingsManager settingsManager, ReviewContext reviewContext,
+                            ReviewContextManager reviewContextManager, String filePath, int lineNumber,
+                            Runnable onCommentChanged) {
+        if (instance == null || !instance.isDisplayable()) {
+            instance = new InlineCommentDialog(owner, settingsManager, reviewContext, reviewContextManager,
+                    filePath, lineNumber, onCommentChanged);
+        } else {
+            instance.loadThread(reviewContext, reviewContextManager, filePath, lineNumber, onCommentChanged);
+        }
+        setActiveKey(makeThreadKey(filePath, lineNumber));
+        if (!instance.isVisible()) instance.setVisible(true);
+        instance.toFront();
+    }
+
+    /**
+     * Returns the key for the currently open comment thread, or {@code null} if no thread is open.
+     * The key format is {@code "filePath\u0000lineNumber"}.
+     *
+     * @return active thread key or null
+     */
+    public static String getActiveKey() {
+        return activeKey;
+    }
+
+    /**
+     * Sets a listener that is called whenever the active thread key changes (dialog opened, switched, or closed).
+     *
+     * @param listener the listener to fire on key changes, or null to remove
+     */
+    public static void setActiveKeyListener(Runnable listener) {
+        activeKeyListener = listener;
+    }
+
+    /**
+     * Adds a listener that is called whenever any comment or resolution is saved in this dialog.
+     *
+     * @param listener the listener to add
+     */
+    public static void addGlobalCommentChangedListener(Runnable listener) {
+        globalCommentChangedListeners.add(listener);
+    }
+
+    /**
+     * Removes a previously added global comment-changed listener.
+     *
+     * @param listener the listener to remove
+     */
+    public static void removeGlobalCommentChangedListener(Runnable listener) {
+        globalCommentChangedListeners.remove(listener);
+    }
+
+    /**
+     * Builds the composite thread key used by {@link #getActiveKey()}.
+     *
+     * @param filePath   file path
+     * @param lineNumber line number
+     * @return composite key
+     */
+    static String makeThreadKey(String filePath, int lineNumber) {
+        return filePath + "\u0000" + lineNumber;
+    }
+
+    private static void setActiveKey(String key) {
+        activeKey = key;
+        if (activeKeyListener != null) activeKeyListener.run();
+    }
+
+    private InlineCommentDialog(Window owner, SettingsManager settingsManager, ReviewContext reviewContext,
+                                ReviewContextManager reviewContextManager, String filePath, int lineNumber,
+                                Runnable onCommentChanged) {
         super(owner, ModalityType.MODELESS);
+        this.settingsManager = settingsManager;
         this.reviewContext = reviewContext;
         this.reviewContextManager = reviewContextManager;
-        this.file = file;
+        this.filePath = filePath;
         this.lineNumber = lineNumber;
-        this.onCommentAdded = onCommentAdded;
-
+        this.onCommentChanged = onCommentChanged;
         this.currentUser = settingsManager.getCurrentUserName();
 
-        // Start loading indicator for dialog initialization
-        String loadingId = "load-comments-dialog-" + file.getPath() + "-" + lineNumber;
+        String loadingId = "load-comments-dialog-" + filePath + "-" + lineNumber;
         loadingStateManager.startLoading(loadingId);
 
         setUndecorated(true);
@@ -61,8 +154,9 @@ public class InlineCommentDialog extends JDialog {
         loadExistingComments();
         applyTheme();
 
-        // Stop loading indicator after dialog is ready
         loadingStateManager.stopLoading(loadingId);
+
+        WindowFrameLoadingIndicator.install(this);
 
         WindowResizeHandler resizeHandler = new WindowResizeHandler(this, 5);
         addMouseListener(resizeHandler);
@@ -76,8 +170,38 @@ public class InlineCommentDialog extends JDialog {
     }
 
     @Override
+    public void dispose() {
+        setActiveKey(null);
+        super.dispose();
+    }
+
+    @Override
     protected JRootPane createRootPane() {
         return new ThemedRootPane();
+    }
+
+    private String buildTitle() {
+        String fileName = filePath.contains("/") ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
+        return fileName + " : Line " + lineNumber;
+    }
+
+    private void loadThread(ReviewContext reviewContext, ReviewContextManager reviewContextManager,
+                            String filePath, int lineNumber, Runnable onCommentChanged) {
+        this.reviewContext = reviewContext;
+        this.reviewContextManager = reviewContextManager;
+        this.filePath = filePath;
+        this.lineNumber = lineNumber;
+        this.onCommentChanged = onCommentChanged;
+        this.currentUser = settingsManager.getCurrentUserName();
+
+        titleBar.setTitle(buildTitle());
+        conversationNeedsResolution = false;
+        conversationResolved = false;
+        newCommentEditor.setHtml("");
+        addButton.setEnabled(true);
+        addButton.setText("Add Comment");
+        newCommentEditor.setEnabled(true);
+        loadExistingComments();
     }
 
     private void setupKeyboardShortcuts() {
@@ -98,13 +222,12 @@ public class InlineCommentDialog extends JDialog {
 
     private void initComponents() {
         ThemedPanel contentPanel = new ThemedPanel();
-        contentPanel.setLayout(new MigLayout("fill, insets 0", "[grow]", "[][][grow]"));
+        contentPanel.setLayout(new MigLayout("fill, insets 0, gapy 0", "[grow]", "[][][grow]"));
 
         Theme theme = themeManager.getCurrentTheme();
-        contentPanel.setBorder(BorderFactory.createLineBorder(theme.getBorderColor(), 2));
+        contentPanel.setBorder(BorderFactory.createLineBorder(theme.getBorderColor(), 1));
 
-        String fileName = file.getPath().substring(file.getPath().lastIndexOf('/') + 1);
-        CustomTitleBar titleBar = new CustomTitleBar(this, fileName + " : Line " + lineNumber);
+        titleBar = new CustomTitleBar(this, buildTitle());
         contentPanel.add(titleBar, "growx, wrap");
 
         headerPanel = new ThemedPanel(new MigLayout("fill, insets 4", "[grow]", "[]"));
@@ -138,7 +261,6 @@ public class InlineCommentDialog extends JDialog {
 
         panel.add(newCommentEditor, "cell 0 0, grow, pushy, wmin 200");
 
-
         ThemedPanel buttonRow = new ThemedPanel(new MigLayout("", "[][grow]", "[]"));
 
         resolveToggleButton = new ThemedButton("Mark as Needs Resolution");
@@ -154,11 +276,10 @@ public class InlineCommentDialog extends JDialog {
         return panel;
     }
 
-
     private void loadExistingComments() {
         commentsContainer.removeAll();
 
-        List<ReviewComment> allComments = reviewContext.getCommentsForFile(file.getPath());
+        List<ReviewComment> allComments = reviewContext.getCommentsForFile(filePath);
         List<ReviewComment> lineComments = allComments.stream()
             .filter(c -> c.getLineNumber() == lineNumber)
             .toList();
@@ -198,7 +319,6 @@ public class InlineCommentDialog extends JDialog {
         headerPanel.setLayout(new MigLayout("fill, insets 8", "[]4[]push", "[]"));
 
         if (conversationNeedsResolution) {
-            // Show banner for both Unresolved and Resolved states
             headerPanel.setVisible(true);
 
             Color bgColor;
@@ -208,14 +328,12 @@ public class InlineCommentDialog extends JDialog {
             String status;
 
             if (conversationResolved) {
-                // State 3: Resolved (Green)
                 bgColor = new Color(76, 175, 80, 30);
                 borderColor = new Color(76, 175, 80);
                 textColor = new Color(76, 175, 80);
                 icon = new CheckIcon(themeManager.scale(16), borderColor);
                 status = "Resolved";
             } else {
-                // State 2: Unresolved (Orange)
                 bgColor = new Color(255, 152, 0, 30);
                 borderColor = new Color(255, 152, 0);
                 textColor = new Color(255, 152, 0);
@@ -236,9 +354,8 @@ public class InlineCommentDialog extends JDialog {
             headerPanel.add(statusLabel, "align left");
 
             if (conversationResolved) {
-                // Find the user who resolved the comment (get from actual comment data)
-                String resolvedByUser = currentUser; // Default fallback
-                List<ReviewComment> allComments = reviewContext.getCommentsForFile(file.getPath());
+                String resolvedByUser = currentUser;
+                List<ReviewComment> allComments = reviewContext.getCommentsForFile(filePath);
                 List<ReviewComment> lineComments = allComments.stream()
                     .filter(c -> c.getLineNumber() == lineNumber && c.needsResolution() && c.isResolved())
                     .toList();
@@ -253,19 +370,14 @@ public class InlineCommentDialog extends JDialog {
                 headerPanel.add(resolvedByLabel, "gapleft 6");
             }
         } else {
-            // State 1: Observation (No banner)
             headerPanel.setVisible(false);
         }
 
-        // Update button text based on three states
         if (!conversationNeedsResolution) {
-            // State 1: Observation → can mark as Unresolved
             resolveToggleButton.setText("Mark as Needs Resolution");
         } else if (conversationResolved) {
-            // State 3: Resolved → can mark as Unresolved
             resolveToggleButton.setText("Mark as Unresolved");
         } else {
-            // State 2: Unresolved → can mark as Resolved
             resolveToggleButton.setText("Mark as Resolved");
         }
 
@@ -274,7 +386,7 @@ public class InlineCommentDialog extends JDialog {
     }
 
     private void handleResolveToggle() {
-        List<ReviewComment> lineComments = reviewContext.getCommentsForFile(file.getPath()).stream()
+        List<ReviewComment> lineComments = reviewContext.getCommentsForFile(filePath).stream()
             .filter(c -> c.getLineNumber() == lineNumber)
             .collect(Collectors.toList());
 
@@ -282,27 +394,16 @@ public class InlineCommentDialog extends JDialog {
             return;
         }
 
-        // Three-state system with one-way gate:
-        // 1. Observation (needsResolution=false) → Mark as Unresolved → State 2 [ONE WAY - can't go back]
-        // 2. Unresolved (needsResolution=true, resolved=false) ↔ Resolved (needsResolution=true, resolved=true)
-
         if (!conversationNeedsResolution) {
-            // State 1 → State 2: Mark as Unresolved (one-way transition)
-            // Once marked, needsResolution stays true forever
             for (ReviewComment comment : lineComments) {
                 comment.setNeedsResolution(true);
-                // Ensure resolved is false (Unresolved state)
                 comment.markUnresolved();
             }
         } else if (conversationResolved) {
-            // State 3 → State 2: Mark as Unresolved
-            // needsResolution stays true, just toggle resolved flag
             for (ReviewComment comment : lineComments) {
                 comment.markUnresolved();
             }
         } else {
-            // State 2 → State 3: Mark as Resolved
-            // needsResolution stays true, set resolved to true
             for (ReviewComment comment : lineComments) {
                 comment.markResolved(currentUser);
             }
@@ -321,10 +422,7 @@ public class InlineCommentDialog extends JDialog {
                 resolveToggleButton.setEnabled(true);
                 addButton.setEnabled(true);
                 loadExistingComments();
-
-                if (onCommentAdded != null) {
-                    onCommentAdded.run();
-                }
+                notifyCommentChanged();
             }))
             .exceptionally(error -> {
                 SwingUtilities.invokeLater(() -> {
@@ -332,7 +430,6 @@ public class InlineCommentDialog extends JDialog {
                     resolveToggleButton.setEnabled(true);
                     addButton.setEnabled(true);
                     loadExistingComments();
-
                     ThemedConfirmDialog.showMessage(this, "Save Error",
                         "Failed to save resolution status: " + error.getMessage());
                 });
@@ -352,7 +449,7 @@ public class InlineCommentDialog extends JDialog {
 
         ReviewComment newComment = new ReviewComment(
             commentId,
-            file.getPath(),
+            filePath,
             lineNumber,
             currentUser,
             commentText,
@@ -378,10 +475,7 @@ public class InlineCommentDialog extends JDialog {
                 addButton.setText("Add Comment");
                 newCommentEditor.setHtml("");
                 loadExistingComments();
-
-                if (onCommentAdded != null) {
-                    onCommentAdded.run();
-                }
+                notifyCommentChanged();
 
                 JScrollBar vertical = ((JScrollPane) commentsContainer.getParent().getParent()).getVerticalScrollBar();
                 vertical.setValue(vertical.getMaximum());
@@ -402,39 +496,14 @@ public class InlineCommentDialog extends JDialog {
             });
     }
 
+    private void notifyCommentChanged() {
+        if (onCommentChanged != null) onCommentChanged.run();
+        globalCommentChangedListeners.forEach(Runnable::run);
+    }
+
     private void applyTheme() {
         Theme theme = themeManager.getCurrentTheme();
         getContentPane().setBackground(theme.getBackgroundColor());
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

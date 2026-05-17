@@ -1,6 +1,7 @@
 package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel;
 
 import java.io.Serial;
+import java.util.function.Consumer;
 
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.git.Git;
@@ -11,7 +12,11 @@ import com.kalynx.serverlessreviewtool.models.ReviewFile;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.swingtheme.themedcomponents.ThemedSplitPane;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.CodeViewerModel;
-import com.kalynx.serverlessreviewtool.ui.review.*;
+import com.kalynx.serverlessreviewtool.ui.review.CommitSelectorPanel;
+import com.kalynx.serverlessreviewtool.ui.review.DiffViewerPanel;
+import com.kalynx.serverlessreviewtool.ui.review.FileNavigationPanel;
+import com.kalynx.serverlessreviewtool.ui.review.InlineCommentDialog;
+import com.kalynx.serverlessreviewtool.ui.review.ReviewCommentsDialog;
 import net.miginfocom.swing.MigLayout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,6 +75,7 @@ public class CodePanel extends ThemedPanel {
         diffViewerPanel.setOnLineDoubleClickListener(this::onLineDoubleClicked);
         reviewContextManager.addListener(this::onReviewContextChanged);
         fileNavigationPanel.setOnFileDoubleClickListener(this::onFileDoubleClicked);
+        InlineCommentDialog.addGlobalCommentChangedListener(this::loadCommentsForCurrentFile);
     }
 
     private void onReviewContextChanged(com.kalynx.serverlessreviewtool.models.ReviewContext context) {
@@ -99,22 +105,9 @@ public class CodePanel extends ThemedPanel {
 
         SwingUtilities.invokeLater(() -> {
             java.awt.Window window = SwingUtilities.getWindowAncestor(this);
-            InlineCommentDialog dialog = new InlineCommentDialog(
-                window,
-                settingsManager,
-                reviewContext,
-                reviewContextManager,
-                file,
-                lineNumber,
-                this::onCommentAdded
-            );
-            dialog.setVisible(true);
+            InlineCommentDialog.show(window, settingsManager, reviewContext, reviewContextManager,
+                    file.getPath(), lineNumber, null);
         });
-    }
-
-    private void onCommentAdded() {
-        LOGGER.debug("Comment added, refreshing comments for current file");
-        loadCommentsForCurrentFile();
     }
 
     private void onFileDoubleClicked(ReviewFile file) {
@@ -122,24 +115,79 @@ public class CodePanel extends ThemedPanel {
         if (reviewContext == null) {
             return;
         }
-        java.util.List<com.kalynx.serverlessreviewtool.models.ReviewComment> comments =
-            reviewContext.getCommentsForFile(file.getPath());
-        if (comments.isEmpty()) {
-            LOGGER.debug("No comments for file: {}, skipping file comments dialog", file.getPath());
-            return;
-        }
         SwingUtilities.invokeLater(() -> {
             java.awt.Window window = SwingUtilities.getWindowAncestor(this);
-            FileCommentsDialog dialog = new FileCommentsDialog(
-                window,
-                settingsManager,
-                reviewContext,
-                reviewContextManager,
-                file,
-                this::onCommentAdded
-            );
-            dialog.setVisible(true);
+            ReviewCommentsDialog.show(window, settingsManager, reviewContext, reviewContextManager,
+                    this::loadCommentsForCurrentFile, this::navigateToComment);
         });
+    }
+
+    /**
+     * Navigates the diff viewer to the given file and line, then opens the inline
+     * comment thread dialog for that location. Selects the file in the code viewer
+     * model if it differs from the current selection.
+     *
+     * @param filePath   path of the file to navigate to
+     * @param lineNumber 1-based line number to scroll to
+     */
+    public void navigateToComment(String filePath, int lineNumber) {
+        com.kalynx.serverlessreviewtool.models.ReviewContext reviewContext = reviewContextManager.getReviewContext();
+        if (reviewContext == null || filePath == null) {
+            return;
+        }
+
+        ReviewFile target = findFileByPath(filePath);
+        if (target == null) {
+            LOGGER.debug("Cannot navigate: file not found in available files: {}", filePath);
+            return;
+        }
+
+        ReviewFile current = codeViewerModel.selectedFile.getValue();
+        boolean sameFile = current != null && filePath.equals(current.getPath());
+
+        if (sameFile) {
+            diffViewerPanel.scrollToTopLine(lineNumber);
+            openInlineCommentDialog(filePath, lineNumber);
+            return;
+        }
+
+        deferOpenAfterFileContent(filePath, lineNumber);
+        codeViewerModel.selectFile(target);
+        diffViewerPanel.scrollToTopLine(lineNumber);
+    }
+
+    private void deferOpenAfterFileContent(String filePath, int lineNumber) {
+        final boolean[] skipInitial = {true};
+        final Consumer<CodeViewerModel.FileContent>[] holder =
+                new Consumer[1];
+        holder[0] = content -> {
+            if (skipInitial[0]) {
+                skipInitial[0] = false;
+                return;
+            }
+            codeViewerModel.fileContent.removeChangeListener(holder[0]);
+            SwingUtilities.invokeLater(() -> openInlineCommentDialog(filePath, lineNumber));
+        };
+        codeViewerModel.fileContent.addChangeListener(holder[0]);
+    }
+
+    private void openInlineCommentDialog(String filePath, int lineNumber) {
+        com.kalynx.serverlessreviewtool.models.ReviewContext reviewContext = reviewContextManager.getReviewContext();
+        if (reviewContext == null) return;
+        java.awt.Window window = SwingUtilities.getWindowAncestor(this);
+        InlineCommentDialog.show(window, settingsManager, reviewContext, reviewContextManager,
+                filePath, lineNumber, null);
+    }
+
+    private ReviewFile findFileByPath(String filePath) {
+        java.util.List<ReviewFile> files = codeViewerModel.availableFiles.getValue();
+        if (files == null) return null;
+        for (ReviewFile f : files) {
+            if (filePath.equals(f.getPath())) {
+                return f;
+            }
+        }
+        return null;
     }
 
     private void loadCommentsForCurrentFile() {

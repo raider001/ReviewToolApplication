@@ -4,6 +4,7 @@ import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.models.Commit;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.CodeViewerModel;
+import com.kalynx.swingtheme.theme.LoadingStateManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -160,6 +161,9 @@ public class FileDiffManager {
         logger.info("Loading diff for file {} between commits {} and {}",
             file.getPath(), startCommit.getShortHash(), endCommit.getShortHash());
 
+        String operationId = "load-diff-" + file.getPath() + "@" + startCommit.getShortHash() + ".." + endCommit.getShortHash();
+        LoadingStateManager.getInstance().startLoading(operationId);
+
         // When comparing specific commits, always try to load file content
         // The file's changeType (ADDED/DELETED/MODIFIED) is relative to branch comparison
         // A file marked ADDED (not in master) might still exist in both commits we're comparing
@@ -205,7 +209,9 @@ public class FileDiffManager {
                     "// Error loading diff: " + error.getMessage()
                 );
                 return null;
-            });
+            })
+            .whenComplete((ignoredResult, ignoredError) ->
+                LoadingStateManager.getInstance().stopLoading(operationId));
     }
 
     private CompletableFuture<String> loadUnifiedDiff(String repositoryName, String filePath,

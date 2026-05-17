@@ -262,7 +262,7 @@ public class SideBySidePanel extends ThemedPanel {
             if (viewport != null) {
                 viewport.setViewPosition(new Point(0, Math.max(0, rect.y)));
             }
-        } catch (BadLocationException ignored) {
+        } catch (Exception ignored) {
         }
     }
 
