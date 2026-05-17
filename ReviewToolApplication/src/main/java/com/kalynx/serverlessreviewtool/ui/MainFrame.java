@@ -104,6 +104,7 @@ public class MainFrame extends ThemedFrame {
         initializePanels();
         setupMenuItems();
         setupRefreshButton();
+        setupEasterEgg();
         setupReviewDoubleClickHandler();
         setupLoginStateListener();
         if (needsLogin()) {
@@ -140,6 +141,12 @@ public class MainFrame extends ThemedFrame {
         refreshButton = createRefreshButton();
         refreshButton.addActionListener(this::onRefresh);
         getTitleBar().addActionButton(refreshButton);
+    }
+
+    private void setupEasterEgg() {
+        EasterEggSpritePanel spritePanel = new EasterEggSpritePanel();
+        getTitleBar().add(spritePanel, BorderLayout.CENTER);
+        new EasterEggController(spritePanel).initialize();
     }
 
     private void onRefresh() {
