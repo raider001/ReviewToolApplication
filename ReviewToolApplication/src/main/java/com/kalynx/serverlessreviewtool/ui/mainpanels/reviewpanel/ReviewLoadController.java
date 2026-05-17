@@ -247,13 +247,8 @@ public class ReviewLoadController {
                                                       List<Repository> repositories,
                                                       Repository primaryRepo,
                                                       String reviewId) {
-        String editor = settingsManager.getCurrentUserName();
-        if (editor == null || editor.isBlank()) {
-            editor = "system";
-        }
         CompletableFuture<Map<String, List<String>>> snapshotsFuture = reviewContextManager
-            .captureReviewCommitSnapshots(reviewId, repositories, reviewContext.getBranch(),
-                reviewContext.getBaseBranch(), editor);
+            .loadStoredReviewCommitsForAllRepositories(reviewId, repositories);
 
         CompletableFuture<Void> commits = snapshotsFuture
             .thenApply(map -> map.getOrDefault(primaryRepo.getName(), List.of()))

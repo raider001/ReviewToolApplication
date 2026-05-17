@@ -149,8 +149,26 @@ public class ReviewItemLoader {
                 List<StreamEntry<String>> statusEntries = metadata.statuses();
                 List<StreamEntry<com.kalynx.serverlessreviewtool.models.review.ReviewerData>> reviewerEntries = metadata.reviewers();
 
+                String primaryRepositoryValue = getLatestValue(metadata.primaryRepository());
+                boolean isSecondaryReference = "false".equalsIgnoreCase(primaryRepositoryValue);
+
                 String title = getLatestValue(titleEntries);
                 if (title == null) {
+                    if (isSecondaryReference) {
+                        long secondaryLastUpdate = getMostRecentTimestamp(
+                            titleEntries,
+                            metadata.descriptions(),
+                            authorEntries,
+                            metadata.primaryRepository(),
+                            metadata.branches(),
+                            metadata.baseBranches(),
+                            statusEntries,
+                            reviewerEntries
+                        );
+                        return new ReviewItem(reviewId, null, null, null,
+                            List.of(repositoryName), null, secondaryLastUpdate, List.of(),
+                            getLatestValue(metadata.branches()), getLatestValue(metadata.baseBranches()));
+                    }
                     LOGGER.debug("Skipping review {} in {} — no title written yet (review is partially created)", reviewId, repositoryName);
                     return null;
                 }

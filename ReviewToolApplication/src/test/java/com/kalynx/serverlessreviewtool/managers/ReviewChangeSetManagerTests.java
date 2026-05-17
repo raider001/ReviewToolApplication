@@ -220,17 +220,15 @@ class ReviewChangeSetManagerTests {
     }
 
     @Test
-    void loadFilesFromStoredReviewCommits_noStoredCommitsForRepo_fallsBackToBranchDiff() throws Exception {
+    void loadFilesFromStoredReviewCommits_noStoredCommitsForRepo_returnsEmpty() throws Exception {
         Repository repo = new Repository(REPO, "", "file:///repo");
-
-        when(git.listChangedFiles(eq(REPO), anyString(), anyString()))
-            .thenReturn(CompletableFuture.completedFuture(List.of("M src/Service.java")));
 
         List<ReviewFile> result = changeSetManager.loadFilesFromStoredReviewCommits(
             "review-1", List.of(repo), REVIEW_BRANCH, BASE_BRANCH, Map.of()
         ).get(3, TimeUnit.SECONDS);
 
         assertNotNull(result);
+        assertTrue(result.isEmpty());
     }
 
     @Test

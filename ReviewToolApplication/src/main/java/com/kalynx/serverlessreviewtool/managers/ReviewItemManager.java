@@ -261,13 +261,27 @@ public class ReviewItemManager {
             return;
         }
 
+        boolean hasPrimaryCopy = copies.stream().anyMatch(c -> c.getTitle() != null);
+        if (!hasPrimaryCopy) {
+            mergedReviewIndex.remove(reviewId);
+            return;
+        }
+
         mergedReviewIndex.put(reviewId, mergeReviewCopies(reviewId, copies));
     }
 
     private ReviewItem mergeReviewCopies(String reviewId, List<ReviewItem> copies) {
         ReviewItem latest = copies.stream()
+            .filter(c -> c.getTitle() != null)
             .max(Comparator.comparingLong(ReviewItem::getLastUpdate))
-            .orElse(copies.getFirst());
+            .orElseGet(() -> copies.stream()
+                .max(Comparator.comparingLong(ReviewItem::getLastUpdate))
+                .orElse(copies.getFirst()));
+
+        long mergedLastUpdate = copies.stream()
+            .mapToLong(ReviewItem::getLastUpdate)
+            .max()
+            .orElse(latest.getLastUpdate());
 
         String primaryRepository = determinePrimaryRepository(reviewId, copies);
         String mergedTitle = resolveLatestValue(copies, ReviewItem::getTitle, this::isMeaningfulTitle, latest.getTitle());
@@ -295,7 +309,7 @@ public class ReviewItemManager {
             primaryRepository,
             new ArrayList<>(repositories),
             latest.getStatus(),
-            latest.getLastUpdate(),
+            mergedLastUpdate,
             new ArrayList<>(reviewers),
             branch,
             baseBranch

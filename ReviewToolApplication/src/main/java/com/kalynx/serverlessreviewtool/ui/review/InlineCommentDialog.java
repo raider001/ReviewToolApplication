@@ -222,7 +222,7 @@ public class InlineCommentDialog extends JDialog {
 
     private void initComponents() {
         ThemedPanel contentPanel = new ThemedPanel();
-        contentPanel.setLayout(new MigLayout("fill, insets 0, gapy 0", "[grow]", "[][][grow]"));
+        contentPanel.setLayout(new MigLayout("fill, insets 0, gap 0, novisualpadding", "[grow]", "[][][grow]"));
 
         Theme theme = themeManager.getCurrentTheme();
         contentPanel.setBorder(BorderFactory.createLineBorder(theme.getBorderColor(), 1));

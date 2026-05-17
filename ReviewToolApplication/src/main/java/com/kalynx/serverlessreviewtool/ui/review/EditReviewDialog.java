@@ -123,9 +123,22 @@ public class EditReviewDialog extends ReviewFormDialog {
 
         ReviewContext updatedContext = buildUpdatedContext();
 
-        reviewContextManager.saveReviewMetadata(updatedContext)
+        List<String> currentSelected = models.selectedRepositories.getValue() != null
+            ? models.selectedRepositories.getValue()
+            : List.of();
+        List<String> newRepos = currentSelected.stream()
+            .filter(r -> !lastSavedRepositories.contains(r))
+            .collect(Collectors.toList());
+
+        CompletableFuture<Void> metadataSave = reviewContextManager.saveReviewMetadata(updatedContext);
+        CompletableFuture<Void> secondaryRepoSave = newRepos.isEmpty()
+            ? CompletableFuture.completedFuture(null)
+            : reviewContextManager.addSecondaryRepositories(updatedContext, newRepos);
+
+        CompletableFuture.allOf(metadataSave, secondaryRepoSave)
             .thenRun(() -> SwingUtilities.invokeLater(() -> {
                 loadingStateManager.stopLoading(operationId);
+                lastSavedRepositories = new ArrayList<>(currentSelected);
 
                 if (onReviewUpdated != null) {
                     onReviewUpdated.run();

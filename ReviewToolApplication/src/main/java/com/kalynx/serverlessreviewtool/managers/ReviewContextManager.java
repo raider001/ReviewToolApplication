@@ -185,6 +185,19 @@ public class ReviewContextManager {
     }
 
     /**
+     * Read-only load of stored commit snapshots across the given repositories. Returns
+     * a map of repository name to stored commit hashes (empty list when none are stored).
+     *
+     * @param reviewId     the review identifier
+     * @param repositories the repositories participating in the review
+     * @return future that completes with the per-repository commit snapshots
+     */
+    public CompletableFuture<Map<String, List<String>>> loadStoredReviewCommitsForAllRepositories(
+            String reviewId, List<Repository> repositories) {
+        return changeSetManager.loadStoredReviewCommitsForAllRepositories(reviewId, repositories);
+    }
+
+    /**
      * Load review metadata by searching across all known repositories.
      *
      * @param reviewId the review identifier

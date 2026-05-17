@@ -357,17 +357,14 @@ public class SwipeActionPanel extends ThemedPanel {
                 boolean wasRightHover = isRightHover;
 
                 if (x < EDGE_TRIGGER_ZONE) {
-                    glassPane.setCursor(Cursor.getPredefinedCursor(Cursor.W_RESIZE_CURSOR));
                     isLeftHover = true;
                     isRightHover = false;
                     LOGGER.debug("Left edge hover at x={}", x);
                 } else if (x > width - EDGE_TRIGGER_ZONE) {
-                    glassPane.setCursor(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR));
                     isLeftHover = false;
                     isRightHover = true;
                     LOGGER.debug("Right edge hover at x={}", x);
                 } else {
-                    glassPane.setCursor(Cursor.getDefaultCursor());
                     isLeftHover = false;
                     isRightHover = false;
                 }
@@ -394,6 +391,7 @@ public class SwipeActionPanel extends ThemedPanel {
                 }
 
                 LOGGER.debug("Dragging: offset={}", currentDragOffset);
+                SwipeActionPanel.this.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
                 updatePullPanels();
             }
         });
@@ -460,6 +458,7 @@ public class SwipeActionPanel extends ThemedPanel {
                 isLeftHover = false;
                 isRightHover = false;
                 updatePullPanels();
+                SwipeActionPanel.this.setCursor(Cursor.getDefaultCursor());
                 glassPane.setCursor(Cursor.getDefaultCursor());
 
                 if (!fadeTimer.isRunning()) {
@@ -484,6 +483,7 @@ public class SwipeActionPanel extends ThemedPanel {
 
                 isLeftHover = false;
                 isRightHover = false;
+                SwipeActionPanel.this.setCursor(Cursor.getDefaultCursor());
                 glassPane.setCursor(Cursor.getDefaultCursor());
                 updatePullPanels();
 
@@ -632,6 +632,7 @@ public class SwipeActionPanel extends ThemedPanel {
                 fadeTimer.stop();
             }
             updatePullPanels();
+            SwipeActionPanel.this.setCursor(Cursor.getDefaultCursor());
             glassPane.setCursor(Cursor.getDefaultCursor());
         }
         glassPane.repaint();

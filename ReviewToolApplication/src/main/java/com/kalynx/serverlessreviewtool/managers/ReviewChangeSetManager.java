@@ -252,6 +252,38 @@ public class ReviewChangeSetManager {
             });
     }
 
+    /**
+     * Read-only load of stored commit snapshots across multiple repositories.
+     * Unlike {@link #captureReviewCommitSnapshots}, this never writes new snapshots; it
+     * only returns whatever was previously captured for the review. Used when opening a
+     * review (especially closed reviews) so the file list reflects the historical scope
+     * rather than the current branch state.
+     *
+     * @param reviewId     the review identifier
+     * @param repositories repositories participating in the review
+     * @return future completing with a map of repository name to stored commit hashes
+     *         (empty list when a repository has no snapshot)
+     */
+    public CompletableFuture<Map<String, List<String>>> loadStoredReviewCommitsForAllRepositories(
+            String reviewId, List<Repository> repositories) {
+        if (reviewId == null || reviewId.isBlank() || repositories == null || repositories.isEmpty()) {
+            return CompletableFuture.completedFuture(new LinkedHashMap<>());
+        }
+        List<CompletableFuture<Map.Entry<String, List<String>>>> futures = repositories.stream()
+            .map(repo -> loadLatestReviewCommits(reviewId, repo.getName())
+                .thenApply(commits -> Map.entry(repo.getName(), commits)))
+            .toList();
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenApply(ignored -> {
+                Map<String, List<String>> result = new LinkedHashMap<>();
+                for (CompletableFuture<Map.Entry<String, List<String>>> future : futures) {
+                    Map.Entry<String, List<String>> entry = future.join();
+                    result.put(entry.getKey(), entry.getValue());
+                }
+                return result;
+            });
+    }
+
     private CompletableFuture<Map.Entry<String, List<String>>> captureCommitSnapshotForRepository(
             String reviewId, Repository repo, String reviewBranch, String baseBranch, String editor) {
         GitReviewNotesManager notesManager = notesManagerFactory.create(repo.getName());
@@ -296,9 +328,9 @@ public class ReviewChangeSetManager {
     private CompletableFuture<List<ReviewFile>> loadFilesForRepositoryFromStoredCommits(
             String reviewId, String repositoryName, String branch, String baseBranch, List<String> commits) {
         if (commits == null || commits.isEmpty()) {
-            LOGGER.warn("No stored commit snapshot for review {} in repo {}; falling back to branch diff",
+            LOGGER.warn("No stored commit snapshot for review {} in repo {}; returning empty file list to avoid showing unrelated files",
                 reviewId, repositoryName);
-            return loadFilesForReview(repositoryName, branch, baseBranch);
+            return CompletableFuture.completedFuture(new ArrayList<>());
         }
 
         List<CompletableFuture<List<String>>> perCommitFutures = commits.stream()
