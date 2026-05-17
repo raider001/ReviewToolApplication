@@ -10,7 +10,7 @@ import java.util.UUID;
  */
 public class AppSettings {
 
-    private WindowSettings window;
+    private final WindowSettings window;
     private String notificationServiceUrl;
     private List<RepositoryConfig> repositories;
     private String theme;
@@ -44,7 +44,6 @@ public class AppSettings {
     }
 
     public WindowSettings getWindow() { return window; }
-    public void setWindow(WindowSettings window) { this.window = window; }
 
     public String getNotificationServiceUrl() { return notificationServiceUrl; }
     public void setNotificationServiceUrl(String url) { this.notificationServiceUrl = url; }
@@ -119,6 +118,9 @@ public class AppSettings {
      * An empty list means "any status".<br>
      * {@code repositories} supports wildcard patterns, e.g. {@code "*bob*"}.<br>
      * {@code involvementFilter} values: {@code "ANY"}, {@code "MINE"}, {@code "OTHERS"}
+     * <p>
+     * Fields are non-final to ensure Gson can deserialize them correctly without relying on
+     * constructor injection.
      */
     public static class ReviewTabConfig {
         private String id;

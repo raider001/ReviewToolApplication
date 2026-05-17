@@ -183,7 +183,7 @@ public class DraggableTabbedPane extends ThemedTabbedPane {
                     }
                     return;
                 }
-                if (idx >= 0 && idx < getUserTabCount()) {
+                if (SwingUtilities.isLeftMouseButton(e) && idx >= 0 && idx < getUserTabCount()) {
                     dragSourceIndex = idx;
                 }
                 if (e.getClickCount() == 2 && idx >= 0 && idx < getUserTabCount()) {

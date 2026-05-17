@@ -150,7 +150,10 @@ public class ReviewItemLoader {
                 List<StreamEntry<com.kalynx.serverlessreviewtool.models.review.ReviewerData>> reviewerEntries = metadata.reviewers();
 
                 String title = getLatestValue(titleEntries);
-                if (title == null) title = "Untitled Review";
+                if (title == null) {
+                    LOGGER.debug("Skipping review {} in {} — no title written yet (review is partially created)", reviewId, repositoryName);
+                    return null;
+                }
 
                 String author = getLatestValue(authorEntries);
                 if (author == null) author = "Unknown";
