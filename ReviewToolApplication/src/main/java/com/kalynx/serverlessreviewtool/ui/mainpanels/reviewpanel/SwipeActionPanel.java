@@ -14,10 +14,11 @@ public class SwipeActionPanel extends ThemedPanel {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SwipeActionPanel.class);
 
-    private static final int EDGE_TRIGGER_ZONE = 20;
+    private static final int EDGE_TRIGGER_ZONE = 15;
     private static final float PANEL_WIDTH_RATIO = 0.75f;
     private static final float FULL_PULL_THRESHOLD_RATIO = 0.90f;
-    private static final int HOVER_PEEK_WIDTH = 40;
+    private static final int HOVER_PEEK_WIDTH = 10;
+    private static final int WINDOW_RESIZE_ZONE = 10;
 
     private final JPanel contentPanel;
     private final JPanel leftPullPanel;
@@ -154,6 +155,21 @@ public class SwipeActionPanel extends ThemedPanel {
                 if (!enabled || isDragging) {
                     return isDragging;
                 }
+                Window window = SwingUtilities.getWindowAncestor(SwipeActionPanel.this);
+                if (window != null) {
+                    try {
+                        Point screenPoint = new Point(x, y);
+                        SwingUtilities.convertPointToScreen(screenPoint, this);
+                        int windowLeft = window.getX();
+                        int windowRight = window.getX() + window.getWidth();
+                        if (screenPoint.x < windowLeft + WINDOW_RESIZE_ZONE
+                                || screenPoint.x > windowRight - WINDOW_RESIZE_ZONE) {
+                            return false;
+                        }
+                    } catch (Exception ignored) {
+                        return false;
+                    }
+                }
                 return x < EDGE_TRIGGER_ZONE || x > getWidth() - EDGE_TRIGGER_ZONE;
             }
         };
@@ -230,8 +246,6 @@ public class SwipeActionPanel extends ThemedPanel {
 
                 if (isDragging && currentDragOffset > HOVER_PEEK_WIDTH) {
                     drawDragState(g2d, text, progress, width, height, textColor, isLeftPanel);
-                } else if (width <= HOVER_PEEK_WIDTH + 5) {
-                    drawHoverState(g2d, width, height, isLeftPanel);
                 }
 
                 g2d.dispose();
@@ -248,30 +262,6 @@ public class SwipeActionPanel extends ThemedPanel {
         return panel;
     }
 
-    private void drawHoverState(Graphics2D g2d, int width, int height, boolean isLeftPanel) {
-        int centerX = width / 2;
-        int centerY = height / 2;
-        int circleSize = 36;
-
-        g2d.setColor(new Color(0, 0, 0, 80));
-        g2d.fillOval(centerX - circleSize / 2 + 1, centerY - circleSize / 2 + 1, circleSize, circleSize);
-
-        g2d.setColor(new Color(0, 0, 0, 240));
-        g2d.fillOval(centerX - circleSize / 2, centerY - circleSize / 2, circleSize, circleSize);
-
-        g2d.setStroke(new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        g2d.setColor(new Color(255, 255, 255, 240));
-
-        if (isLeftPanel) {
-            int iconSize = 13;
-            g2d.drawLine(centerX - iconSize / 2, centerY - iconSize / 2, centerX + iconSize / 2, centerY + iconSize / 2);
-            g2d.drawLine(centerX + iconSize / 2, centerY - iconSize / 2, centerX - iconSize / 2, centerY + iconSize / 2);
-        } else {
-            int[] xPoints = {centerX - 7, centerX - 2, centerX + 7};
-            int[] yPoints = {centerY - 1, centerY + 5, centerY - 8};
-            g2d.drawPolyline(xPoints, yPoints, 3);
-        }
-    }
 
     private void drawDragState(Graphics2D g2d, String text, int progress, int width, int height, Color textColor, boolean isLeftPanel) {
         int fixedCenterY = height / 2;

@@ -69,6 +69,7 @@ public class CodePanel extends ThemedPanel {
 
         diffViewerPanel.setOnLineDoubleClickListener(this::onLineDoubleClicked);
         reviewContextManager.addListener(this::onReviewContextChanged);
+        fileNavigationPanel.setOnFileDoubleClickListener(this::onFileDoubleClicked);
     }
 
     private void onReviewContextChanged(com.kalynx.serverlessreviewtool.models.ReviewContext context) {
@@ -114,6 +115,31 @@ public class CodePanel extends ThemedPanel {
     private void onCommentAdded() {
         LOGGER.debug("Comment added, refreshing comments for current file");
         loadCommentsForCurrentFile();
+    }
+
+    private void onFileDoubleClicked(ReviewFile file) {
+        com.kalynx.serverlessreviewtool.models.ReviewContext reviewContext = reviewContextManager.getReviewContext();
+        if (reviewContext == null) {
+            return;
+        }
+        java.util.List<com.kalynx.serverlessreviewtool.models.ReviewComment> comments =
+            reviewContext.getCommentsForFile(file.getPath());
+        if (comments.isEmpty()) {
+            LOGGER.debug("No comments for file: {}, skipping file comments dialog", file.getPath());
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            java.awt.Window window = SwingUtilities.getWindowAncestor(this);
+            FileCommentsDialog dialog = new FileCommentsDialog(
+                window,
+                settingsManager,
+                reviewContext,
+                reviewContextManager,
+                file,
+                this::onCommentAdded
+            );
+            dialog.setVisible(true);
+        });
     }
 
     private void loadCommentsForCurrentFile() {

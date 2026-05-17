@@ -21,10 +21,13 @@ import org.slf4j.LoggerFactory;
 import javax.swing.*;
 import javax.swing.tree.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * FileNavigationPanel - Tree view for navigating files across multiple repositories
@@ -45,6 +48,7 @@ public class FileNavigationPanel extends ThemedPanel {
     private transient ReviewContext currentReviewContext;
     private transient final java.util.Set<String> readFiles = new java.util.HashSet<>();
     private transient final java.util.Map<String, String> fileSignatures = new java.util.HashMap<>();
+    private transient Consumer<ReviewFile> onFileDoubleClickListener;
 
     public FileNavigationPanel(ReviewContextManager reviewContextManager, CodeViewerModel codeViewerModel) {
         this.reviewContextManager = reviewContextManager;
@@ -70,6 +74,21 @@ public class FileNavigationPanel extends ThemedPanel {
             DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) fileTree.getLastSelectedPathComponent();
             if (selectedNode != null && selectedNode.getUserObject() instanceof ReviewFile file) {
                 fireFileSelected(file);
+            }
+        });
+
+        fileTree.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    TreePath path = fileTree.getPathForLocation(e.getX(), e.getY());
+                    if (path != null) {
+                        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                        if (node.getUserObject() instanceof ReviewFile file) {
+                            onFileDoubleClicked(file);
+                        }
+                    }
+                }
             }
         });
 
@@ -416,6 +435,22 @@ public class FileNavigationPanel extends ThemedPanel {
             listener.onFileSelected(file);
         }
         fileTree.repaint();
+    }
+
+    private void onFileDoubleClicked(ReviewFile file) {
+        if (onFileDoubleClickListener != null) {
+            onFileDoubleClickListener.accept(file);
+        }
+    }
+
+    /**
+     * Sets the listener invoked when the user double-clicks a file node.
+     * The listener receives the double-clicked {@link ReviewFile}.
+     *
+     * @param listener consumer receiving the file
+     */
+    public void setOnFileDoubleClickListener(Consumer<ReviewFile> listener) {
+        this.onFileDoubleClickListener = listener;
     }
 
     private void updateReadTracking(List<ReviewFile> files) {
