@@ -62,6 +62,22 @@ public class GitReviewNotesManager {
             () -> ReviewStreamHelper.writeReviewer(getStreamPath(reviewId, "reviewers"), editor, reviewerData));
     }
 
+    /**
+     * Writes an active/inactive flag for a repository participating in the given review.
+     * The repository name is stored as the editor key in the stream entry.
+     *
+     * @param reviewId the review identifier
+     * @param repositoryName the name of the repository
+     * @param editor the user performing the change
+     * @param active whether the repository is active for the review
+     * @return future completing when the entry is written and pushed
+     */
+    public CompletableFuture<Void> writeRepositoryActive(String reviewId, String repositoryName, String editor, boolean active) {
+        return writeToStream(reviewId, "metadata/repositoryActive",
+            () -> ReviewStreamHelper.writeRepositoryActive(
+                getStreamPath(reviewId, "metadata/repositoryActive"), editor, repositoryName, active));
+    }
+
     public CompletableFuture<Void> writeCommentMetadata(String reviewId, String commentId, String editor,
                                                           String file, int line, int lineEnd, String commit) {
         String streamPath = "comments/" + commentId + "/metadata";
@@ -873,7 +889,8 @@ public class GitReviewNotesManager {
             "metadata/branch",
             "metadata/baseBranch",
             "metadata/status",
-            "reviewers"
+            "reviewers",
+            "metadata/repositoryActive"
         );
 
         CompletableFuture<Void> fetchFuture;
@@ -907,6 +924,7 @@ public class GitReviewNotesManager {
                             Path baseBranchPath = extractFutures.get(5).join();
                             Path statusPath = extractFutures.get(6).join();
                             Path reviewersPath = extractFutures.get(7).join();
+                            Path repoActivePath = extractFutures.get(8).join();
 
                             resolveAndNormalize(titlePath);
                             resolveAndNormalize(descPath);
@@ -916,6 +934,7 @@ public class GitReviewNotesManager {
                             resolveAndNormalize(baseBranchPath);
                             resolveAndNormalize(statusPath);
                             resolveAndNormalize(reviewersPath);
+                            resolveAndNormalize(repoActivePath);
 
                             return new ReviewMetadata(
                                 ReviewStreamHelper.readTitles(titlePath),
@@ -925,7 +944,8 @@ public class GitReviewNotesManager {
                                 ReviewStreamHelper.readBranch(branchPath),
                                 ReviewStreamHelper.readBaseBranch(baseBranchPath),
                                 ReviewStreamHelper.readStatuses(statusPath),
-                                ReviewStreamHelper.readReviewers(reviewersPath)
+                                ReviewStreamHelper.readReviewers(reviewersPath),
+                                ReviewStreamHelper.readRepositoryActive(repoActivePath)
                             );
                         } catch (IOException e) {
                             throw new RuntimeException("Failed to read metadata: " + e.getMessage(), e);
@@ -945,7 +965,8 @@ public class GitReviewNotesManager {
         List<StreamEntry<String>> branches,
         List<StreamEntry<String>> baseBranches,
         List<StreamEntry<String>> statuses,
-        List<StreamEntry<ReviewerData>> reviewers
+        List<StreamEntry<ReviewerData>> reviewers,
+        List<StreamEntry<RepositoryActiveData>> repositoryActiveEntries
     ) {}
 
     private <T> CompletableFuture<List<StreamEntry<T>>> readStream(

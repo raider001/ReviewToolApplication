@@ -128,6 +128,32 @@ public class ReviewStreamHelper {
     public static List<StreamEntry<CommentData>> readComments(Path filePath) throws IOException {
         return readEntries(filePath, CommentData.class);
     }
+
+    /**
+     * Writes a repository active/inactive entry to the given stream file.
+     * The actual editor (the person making the change) is stored in the stream entry,
+     * and the repository name is embedded in the data payload.
+     *
+     * @param filePath the path to the stream file
+     * @param editor the user performing the change
+     * @param repositoryName the name of the repository
+     * @param active whether the repository is active for the review
+     * @throws IOException if the file cannot be written
+     */
+    public static void writeRepositoryActive(Path filePath, String editor, String repositoryName, boolean active) throws IOException {
+        writeEntry(filePath, editor, new RepositoryActiveData(repositoryName, active));
+    }
+
+    /**
+     * Reads all repository active/inactive entries from the given stream file.
+     *
+     * @param filePath the path to the stream file
+     * @return list of entries, latest entry per repository name wins
+     * @throws IOException if the file cannot be read
+     */
+    public static List<StreamEntry<RepositoryActiveData>> readRepositoryActive(Path filePath) throws IOException {
+        return readEntries(filePath, RepositoryActiveData.class);
+    }
 }
 
 

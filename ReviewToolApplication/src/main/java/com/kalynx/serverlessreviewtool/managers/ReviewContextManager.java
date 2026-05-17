@@ -317,6 +317,10 @@ public class ReviewContextManager {
                 reviewContext.author,
                 reviewContext.status.name(),
                 reviewerEntries)
+            .thenCompose(ignored -> saveRepositoryActiveStates(
+                notesManager, reviewContext.reviewId, editor,
+                reviewContext.repositories,
+                currentReviewContext != null ? currentReviewContext.repositories : List.of()))
             .thenRun(() -> {
                 LOGGER.debug("Review metadata saved successfully for review: {}", reviewContext.reviewId);
                 setReviewContext(reviewContext);
@@ -325,6 +329,40 @@ public class ReviewContextManager {
                 LOGGER.error("Failed to save review metadata for review: " + reviewContext.reviewId, error);
                 throw new RuntimeException("Failed to save review metadata", error);
             });
+    }
+
+    private CompletableFuture<Void> saveRepositoryActiveStates(
+            GitReviewNotesManager notesManager, String reviewId, String editor,
+            List<Repository> newRepositories, List<Repository> previousRepositories) {
+
+        Set<String> newRepoNames = newRepositories.stream()
+            .map(Repository::getName)
+            .collect(Collectors.toSet());
+        Set<String> previousRepoNames = previousRepositories.stream()
+            .map(Repository::getName)
+            .collect(Collectors.toSet());
+
+        if (newRepoNames.equals(previousRepoNames)) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+        for (String repoName : previousRepoNames) {
+            if (!newRepoNames.contains(repoName)) {
+                LOGGER.debug("Writing inactive flag for repository {} on review {}", repoName, reviewId);
+                futures.add(notesManager.writeRepositoryActive(reviewId, repoName, editor, false));
+            }
+        }
+
+        for (String repoName : newRepoNames) {
+            if (!previousRepoNames.contains(repoName)) {
+                LOGGER.debug("Writing active flag for repository {} on review {}", repoName, reviewId);
+                futures.add(notesManager.writeRepositoryActive(reviewId, repoName, editor, true));
+            }
+        }
+
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture<?>[0]));
     }
 
     /**

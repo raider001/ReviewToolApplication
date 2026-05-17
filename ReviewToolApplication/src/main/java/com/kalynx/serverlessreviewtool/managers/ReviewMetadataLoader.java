@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
@@ -290,6 +291,19 @@ public class ReviewMetadataLoader {
                     reviewId, resolvedTitle, resolvedAuthor, latestReviewerEntries.size());
                 LOGGER.debug("Review {} found in {} repositories", reviewId, reviewRepositories.size());
 
+                Map<String, Boolean> activeByRepo = metadata.repositoryActiveEntries().stream()
+                    .collect(Collectors.groupingBy(
+                        entry -> entry.data().repositoryName(),
+                        Collectors.collectingAndThen(
+                            Collectors.maxBy(Comparator.comparing(StreamEntry::timestamp)),
+                            opt -> opt.map(e -> e.data().active()).orElse(true)
+                        )
+                    ));
+
+                List<Repository> activeRepositories = orderedRepositories.stream()
+                    .filter(repo -> activeByRepo.getOrDefault(repo.getName(), true))
+                    .collect(Collectors.toList());
+
                 ReviewStatus status = parseStatus(resolvedStatus);
                 List<ReviewerInfo> reviewers = latestReviewerEntries.stream()
                     .map(entry -> {
@@ -305,7 +319,7 @@ public class ReviewMetadataLoader {
 
                 return new ReviewContext(
                     reviewId, resolvedTitle, resolvedDescription, resolvedAuthor,
-                    status, reviewers, orderedRepositories, comments,
+                    status, reviewers, activeRepositories, comments,
                     branch, baseBranch, hasClosedHistory
                 );
             })

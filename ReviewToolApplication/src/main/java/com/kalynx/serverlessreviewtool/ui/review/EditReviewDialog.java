@@ -17,6 +17,8 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.awt.Component;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -24,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class EditReviewDialog extends ReviewFormDialog {
@@ -37,7 +40,10 @@ public class EditReviewDialog extends ReviewFormDialog {
 
     private List<ReviewerInfo> lastSavedReviewers;
     private List<String> lastSavedRepositories;
-    private boolean suppressRepositoryChangeHandling;
+
+    private Consumer<List<ReviewerInfo>> reviewersChangeListener;
+    private Consumer<List<String>> repositoriesChangeListener;
+    private Consumer<List<String>> availableRepositoriesChangeListener;
 
     private volatile String loadedBranch;
     private volatile String loadedBaseBranch;
@@ -141,9 +147,22 @@ public class EditReviewDialog extends ReviewFormDialog {
     }
 
     private void setupAutoSaveListeners() {
-        models.selectedReviewers.addChangeListener(this::onReviewersChanged);
-        models.selectedRepositories.addChangeListener(this::onRepositoriesChanged);
-        models.availableRepositories.addChangeListener(this::onAvailableRepositoriesChanged);
+        reviewersChangeListener = this::onReviewersChanged;
+        repositoriesChangeListener = this::onRepositoriesChanged;
+        availableRepositoriesChangeListener = this::onAvailableRepositoriesChanged;
+
+        models.selectedReviewers.addChangeListener(reviewersChangeListener);
+        models.selectedRepositories.addChangeListener(repositoriesChangeListener);
+        models.availableRepositories.addChangeListener(availableRepositoriesChangeListener);
+
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent e) {
+                models.selectedReviewers.removeChangeListener(reviewersChangeListener);
+                models.selectedRepositories.removeChangeListener(repositoriesChangeListener);
+                models.availableRepositories.removeChangeListener(availableRepositoriesChangeListener);
+            }
+        });
     }
 
     private void onReviewersChanged(List<ReviewerInfo> newReviewers) {
@@ -165,51 +184,16 @@ public class EditReviewDialog extends ReviewFormDialog {
     }
 
     private void onRepositoriesChanged(List<String> newRepositories) {
-        if (suppressRepositoryChangeHandling) {
-            return;
-        }
         if (newRepositories == null) {
             return;
         }
 
-        List<String> normalizedRepositories = enforceAddOnlyRepositories(newRepositories);
-        Set<String> newRepoSet = new HashSet<>(normalizedRepositories);
+        Set<String> newRepoSet = new HashSet<>(newRepositories);
         Set<String> lastSavedSet = new HashSet<>(lastSavedRepositories);
 
         if (!newRepoSet.equals(lastSavedSet)) {
-            saveRepositories(normalizedRepositories);
+            saveRepositories(newRepositories);
         }
-    }
-
-    private List<String> enforceAddOnlyRepositories(List<String> requestedRepositories) {
-        Set<String> requestedSet = new HashSet<>(requestedRepositories);
-        List<String> restored = new ArrayList<>(lastSavedRepositories);
-        boolean removedAny = false;
-
-        for (String savedRepository : lastSavedRepositories) {
-            if (!requestedSet.contains(savedRepository)) {
-                removedAny = true;
-                break;
-            }
-        }
-
-        for (String repositoryName : requestedRepositories) {
-            if (!restored.contains(repositoryName)) {
-                restored.add(repositoryName);
-            }
-        }
-
-        if (removedAny) {
-            ThemedOptionPane.showWarning(this, "Removing repositories from an existing review is not allowed. New repositories can still be added.");
-            suppressRepositoryChangeHandling = true;
-            try {
-                models.selectedRepositories.setValue(new ArrayList<>(restored));
-            } finally {
-                suppressRepositoryChangeHandling = false;
-            }
-        }
-
-        return restored;
     }
 
     private void saveReviewers(List<ReviewerInfo> reviewers) {
