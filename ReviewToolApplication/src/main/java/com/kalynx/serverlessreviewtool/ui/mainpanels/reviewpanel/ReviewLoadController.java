@@ -198,8 +198,7 @@ public class ReviewLoadController {
                                                         String reviewId,
                                                         Consumer<String> showToast) {
         Repository primaryRepo = repositories.getFirst();
-        String branch = reviewContext.getBranch();
-        String remoteBranch = (branch != null && !branch.isBlank()) ? "origin/" + branch : null;
+        String remoteBranch = reviewContext.getBranch();
         long commitsAndFilesStart = System.nanoTime();
 
         CompletableFuture<Void> commitsFuture;
@@ -266,12 +265,10 @@ public class ReviewLoadController {
                                                   String remoteBranch,
                                                   String reviewId) {
         long commitsStart = System.nanoTime();
-        CompletableFuture<Void> commits = (remoteBranch != null)
-            ? fileDiffManager
-                .loadCommitsForReview(primaryRepo.getName(), remoteBranch, 1000)
-                .thenRun(() -> LOGGER.info("TIMING [{}] loadCommitsForReview ({}): {}ms",
-                    reviewId, primaryRepo.getName(), elapsedMs(commitsStart)))
-            : CompletableFuture.completedFuture(null);
+        CompletableFuture<Void> commits = fileDiffManager
+            .loadCommitsForReview(primaryRepo.getName(), remoteBranch, 1000)
+            .thenRun(() -> LOGGER.info("TIMING [{}] loadCommitsForReview ({}): {}ms",
+                reviewId, primaryRepo.getName(), elapsedMs(commitsStart)));
 
         long filesStart = System.nanoTime();
         CompletableFuture<List<ReviewFile>> files = reviewContextManager

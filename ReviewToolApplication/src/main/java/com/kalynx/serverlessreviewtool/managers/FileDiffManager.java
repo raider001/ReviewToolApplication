@@ -39,6 +39,11 @@ public class FileDiffManager {
      * @return future that completes when commits are loaded
      */
     public CompletableFuture<Void> loadCommitsForReview(String repositoryName, String branch, int maxCommits) {
+        if (branch == null || branch.isBlank()) {
+            logger.warn("Cannot load commits for repository {}: branch ref is blank", repositoryName);
+            codeViewerModel.setAvailableCommits(new ArrayList<>());
+            return CompletableFuture.completedFuture(null);
+        }
         logger.info("Loading commits for repository: {}, branch: {}, max: {}", repositoryName, branch, maxCommits);
         long start = System.nanoTime();
 

@@ -39,7 +39,7 @@ public class SourcePanel extends ThemedPanel {
         reviewAgainstBranchCombo.bindTo(availableBranchesModel);
 
         configureLayout();
-        setupListeners();
+        setupListeners(availableBranchesModel);
     }
 
     private void configureLayout() {
@@ -58,7 +58,7 @@ public class SourcePanel extends ThemedPanel {
         add(branchPanel, "grow, wmin 0");
     }
 
-    private void setupListeners() {
+    private void setupListeners(ComponentModel<List<String>> availableBranchesModel) {
         branchNameField.addActionListener(ignored -> {
             Object selected = branchNameField.getSelectedItem();
             if (selected != null) {
@@ -72,6 +72,31 @@ public class SourcePanel extends ThemedPanel {
                 selectedBaseBranchModel.setValue(selected.toString());
             }
         });
+
+        availableBranchesModel.addChangeListener(branches -> SwingUtilities.invokeLater(() -> {
+            if (branches != null && !branches.isEmpty()) {
+                if (branchNameField.getSelectedItem() == null) {
+                    branchNameField.setSelectedIndex(0);
+                }
+                if (reviewAgainstBranchCombo.getSelectedItem() == null) {
+                    reviewAgainstBranchCombo.setSelectedIndex(0);
+                }
+            }
+            syncSelectedModels();
+        }));
+    }
+
+    private void syncSelectedModels() {
+        Object branch = branchNameField.getSelectedItem();
+        if (branch != null && !branch.toString().isBlank()
+                && (selectedBranchModel.getValue() == null || selectedBranchModel.getValue().isBlank())) {
+            selectedBranchModel.setValue(branch.toString());
+        }
+        Object baseBranch = reviewAgainstBranchCombo.getSelectedItem();
+        if (baseBranch != null && !baseBranch.toString().isBlank()
+                && (selectedBaseBranchModel.getValue() == null || selectedBaseBranchModel.getValue().isBlank())) {
+            selectedBaseBranchModel.setValue(baseBranch.toString());
+        }
     }
 
     private ThemedLabel rightLabel(String text) {

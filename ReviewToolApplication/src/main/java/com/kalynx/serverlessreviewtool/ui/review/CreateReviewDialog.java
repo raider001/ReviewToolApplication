@@ -48,13 +48,23 @@ public class CreateReviewDialog extends ReviewFormDialog {
         String title = models.title.getValue();
         String author = models.author.getValue();
         String summary = models.summary.getValue();
-        String branch = models.selectedBranchModel.getValue();
-        String baseBranch = models.selectedBaseBranchModel.getValue();
+        String branch = sourcePanel.getBranchName();
+        String baseBranch = sourcePanel.getReviewAgainstBranch();
         List<String> repositories = models.selectedRepositories.getValue();
         List<ReviewerInfo> reviewerInfos = models.selectedReviewers.getValue();
 
         if (repositories == null || repositories.isEmpty()) {
             ThemedOptionPane.showWarning(this, "Please select at least one repository");
+            return;
+        }
+
+        if (branch == null || branch.isBlank()) {
+            ThemedOptionPane.showWarning(this, "Please select a review branch");
+            return;
+        }
+
+        if (baseBranch == null || baseBranch.isBlank()) {
+            ThemedOptionPane.showWarning(this, "Please select a base branch");
             return;
         }
 
