@@ -10,6 +10,7 @@ import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
+import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
 import com.kalynx.serverlessreviewtool.plugin.NotificationPlugin;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.swingtheme.themedcomponents.ThemedSplitPane;
@@ -106,7 +107,12 @@ public class ReviewPanel extends ThemedPanel {
         this.membershipHandler = new ReviewMembershipHandler(reviewContextManager, reviewPanelModel,
             settingsManager, () -> currentReviewContext, ctx -> currentReviewContext = ctx);
         this.authorActionHandler = new ReviewAuthorActionHandler(reviewContextManager, reviewPanelModel,
-            settingsManager, () -> currentReviewContext, ctx -> currentReviewContext = ctx);
+            settingsManager, () -> currentReviewContext, ctx -> {
+                currentReviewContext = ctx;
+                if (ctx != null && ctx.hasClosedHistory()) {
+                    triggerSnapshotReload(ctx);
+                }
+            });
         this.autoRefreshController = new ReviewAutoRefreshController(
             () -> currentReviewContext, reviewPanelModel, codePanel, this::reloadForAutoRefresh);
 
@@ -246,6 +252,20 @@ public class ReviewPanel extends ThemedPanel {
     private void onReviewStatusChanged(ReviewStatus status) {
         isReviewTerminal = status == ReviewStatus.COMPLETED || status == ReviewStatus.CANCELLED;
         SwingUtilities.invokeLater(this::updateActionButtonStates);
+    }
+
+    private void triggerSnapshotReload(ReviewContext ctx) {
+        if (ctx == null || ctx.reviewId == null) return;
+        List<String> repoNames = ctx.repositories.stream().map(Repository::getName).toList();
+        String primaryRepo = repoNames.isEmpty() ? null : repoNames.getFirst();
+        List<String> reviewerNames = ctx.reviewers.stream().map(ReviewerInfo::getName).toList();
+        ReviewItem reviewItem = new ReviewItem(
+            ctx.reviewId, ctx.title, ctx.author, primaryRepo,
+            repoNames, ctx.status, System.currentTimeMillis(),
+            reviewerNames, ctx.getBranch(), ctx.getBaseBranch()
+        );
+        loadController.load(reviewItem, null, true, false, null,
+            c -> currentReviewContext = c, toastWindow::show);
     }
 
     private void updateActionButtonStates() {

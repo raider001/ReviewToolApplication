@@ -19,6 +19,7 @@ import com.kalynx.swingtheme.themedcomponents.ThemedFrame;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.swingtheme.theme.icons.AppIcon;
 import com.kalynx.swingtheme.theme.icons.RefreshIcon;
+import com.kalynx.serverlessreviewtool.ui.mainpanels.GitNotesDebugPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.LoginPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.LogsPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.ReviewPanel;
@@ -49,6 +50,7 @@ public class MainFrame extends ThemedFrame {
     private static final int PRIORITY_REVIEW_CODE = 20;
     private static final int PRIORITY_SETTINGS = 30;
     private static final int PRIORITY_LOGS = 40;
+    private static final int PRIORITY_DEBUG = 70;
     private static final int PRIORITY_HELP = 80;
     private static final int PRIORITY_LOGOUT = 90;
 
@@ -70,6 +72,7 @@ public class MainFrame extends ThemedFrame {
     private SettingsPanel settingsPanel;
     private LogsPanel logsPanel;
     private HelpPanel helpPanel;
+    private GitNotesDebugPanel gitNotesDebugPanel;
     private ThemedPanel currentPanel;
     private QuickButton refreshButton;
 
@@ -177,6 +180,7 @@ public class MainFrame extends ThemedFrame {
         settingsPanel = new SettingsPanel(settingsManager, pluginManager);
         logsPanel = new LogsPanel();
         helpPanel = new HelpPanel();
+        gitNotesDebugPanel = new GitNotesDebugPanel(git, repositoryManager);
 
         ConsoleLogBridge.attachLogsPanel(logsPanel);
 
@@ -196,6 +200,7 @@ public class MainFrame extends ThemedFrame {
         registeredEntries.add(new NavEntry("Review Code", PRIORITY_REVIEW_CODE, this::showCodeReviewPanel));
         registeredEntries.add(new NavEntry("Settings",    PRIORITY_SETTINGS,    this::showSettingsPanel));
         registeredEntries.add(new NavEntry("Logs",        PRIORITY_LOGS,        this::showLogsPanel));
+        registeredEntries.add(new NavEntry("Notes Inspector", PRIORITY_DEBUG,   this::showNotesInspectorPanel));
         registeredEntries.add(new NavEntry("Help",        PRIORITY_HELP,        this::showHelpPanel));
         registeredEntries.add(new NavEntry("Log Out",     PRIORITY_LOGOUT,      this::onLogout,        settingsManager::isLoggedIn));
 
@@ -270,6 +275,15 @@ public class MainFrame extends ThemedFrame {
         }
         switchPanel(logsPanel);
         setWindowTitle("Serverless Review Tool - Logs");
+    }
+
+    private void showNotesInspectorPanel() {
+        if (needsLogin()) {
+            showLoginPanel();
+            return;
+        }
+        switchPanel(gitNotesDebugPanel);
+        setWindowTitle("Serverless Review Tool - Notes Inspector");
     }
 
     private void showHelpPanel() {
