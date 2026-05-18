@@ -33,7 +33,6 @@ public class ReviewLoadController {
     private final ReviewPanelModel model;
     private final FileDiffManager fileDiffManager;
     private final Git git;
-    private final SettingsManager settingsManager;
     private final CodePanel codePanel;
 
     /**
@@ -54,7 +53,6 @@ public class ReviewLoadController {
         this.model = model;
         this.fileDiffManager = fileDiffManager;
         this.git = git;
-        this.settingsManager = settingsManager;
         this.codePanel = codePanel;
     }
 
@@ -200,7 +198,8 @@ public class ReviewLoadController {
                                                         String reviewId,
                                                         Consumer<String> showToast) {
         Repository primaryRepo = repositories.getFirst();
-        String remoteBranch = "origin/" + reviewContext.getBranch();
+        String branch = reviewContext.getBranch();
+        String remoteBranch = (branch != null && !branch.isBlank()) ? "origin/" + branch : null;
         long commitsAndFilesStart = System.nanoTime();
 
         CompletableFuture<Void> commitsFuture;
@@ -267,10 +266,12 @@ public class ReviewLoadController {
                                                   String remoteBranch,
                                                   String reviewId) {
         long commitsStart = System.nanoTime();
-        CompletableFuture<Void> commits = fileDiffManager
-            .loadCommitsForReview(primaryRepo.getName(), remoteBranch, 1000)
-            .thenRun(() -> LOGGER.info("TIMING [{}] loadCommitsForReview ({}): {}ms",
-                reviewId, primaryRepo.getName(), elapsedMs(commitsStart)));
+        CompletableFuture<Void> commits = (remoteBranch != null)
+            ? fileDiffManager
+                .loadCommitsForReview(primaryRepo.getName(), remoteBranch, 1000)
+                .thenRun(() -> LOGGER.info("TIMING [{}] loadCommitsForReview ({}): {}ms",
+                    reviewId, primaryRepo.getName(), elapsedMs(commitsStart)))
+            : CompletableFuture.completedFuture(null);
 
         long filesStart = System.nanoTime();
         CompletableFuture<List<ReviewFile>> files = reviewContextManager

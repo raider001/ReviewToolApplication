@@ -13,19 +13,28 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.awt.Component;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+/**
+ * Dialog for creating a new code review.
+ */
 public class CreateReviewDialog extends ReviewFormDialog {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CreateReviewDialog.class);
 
+    /**
+     * @param parent            parent component for dialog placement
+     * @param models            shared form models
+     * @param repositoryManager repository lookup for URL resolution
+     * @param git               git client used for clone/fetch operations
+     */
     public CreateReviewDialog(Component parent,
-                             ReviewFormModels models,
-                             RepositoryManager repositoryManager,
-                             Git git) {
+                              ReviewFormModels models,
+                              RepositoryManager repositoryManager,
+                              Git git) {
         super(parent, "Create Code Review", models, repositoryManager, git);
         models.clear();
     }
@@ -60,15 +69,15 @@ public class CreateReviewDialog extends ReviewFormDialog {
     }
 
     private void createReview(String primaryRepository,
-                             List<String> allRepositories,
-                             String reviewId,
-                             String editor,
-                             String title,
-                             String author,
-                             String summary,
-                             String branch,
-                             String baseBranch,
-                             List<String> reviewers) {
+                               List<String> allRepositories,
+                               String reviewId,
+                               String editor,
+                               String title,
+                               String author,
+                               String summary,
+                               String branch,
+                               String baseBranch,
+                               List<String> reviewers) {
 
         LoadingStateManager.getInstance().startLoading("create-review");
         GitReviewNotesManager notesManager = new GitReviewNotesManager(git, primaryRepository);
@@ -76,40 +85,19 @@ public class CreateReviewDialog extends ReviewFormDialog {
         LOGGER.info("Creating review - Primary Repository: {}, All Repositories: {}, Branch: {}, Base: {}",
             primaryRepository, allRepositories, branch, baseBranch);
 
-        String commitRange = baseBranch + ".." + branch;
-
-        List<CompletableFuture<java.util.Map.Entry<String, List<String>>>> commitFutures = allRepositories.stream()
+        List<CompletableFuture<Void>> cloneFutures = allRepositories.stream()
             .map(repoName -> {
                 String repoUrl = resolveRepositoryUrl(repoName);
                 return git.ensureCloned(repoName, repoUrl)
-                    .thenCompose(_ -> git.fetch(repoName))
-                    .thenCompose(_ -> git.listCommits(repoName, commitRange, 1000))
-                    .thenApply(commitMessages -> {
-                        List<String> commitHashes = extractCommitHashes(commitMessages);
-                        return java.util.Map.entry(repoName, commitHashes);
-                    })
-                    .exceptionally(error -> {
-                        LOGGER.warn("Skipping repository '{}' - could not list commits for range '{}': {}",
-                            repoName, commitRange, error.getMessage());
-                        return java.util.Map.entry(repoName, List.of());
-                    });
+                    .thenCompose(_ -> git.fetch(repoName));
             })
             .toList();
 
-        CompletableFuture.allOf(commitFutures.toArray(new CompletableFuture[0]))
-            .thenCompose(_ -> {
-                java.util.Map<String, List<String>> commitsByRepository = commitFutures.stream()
-                    .map(CompletableFuture::join)
-                    .collect(Collectors.toMap(
-                        java.util.Map.Entry::getKey,
-                        java.util.Map.Entry::getValue
-                    ));
-
-                return notesManager.createReviewAcrossRepositories(
-                    reviewId, editor, title, author, summary, "open",
-                    commitsByRepository, reviewers, allRepositories, branch, baseBranch
-                );
-            })
+        CompletableFuture.allOf(cloneFutures.toArray(new CompletableFuture[0]))
+            .thenCompose(_ -> notesManager.createReviewAcrossRepositories(
+                reviewId, editor, title, author, summary, "open",
+                Map.of(), reviewers, allRepositories, branch, baseBranch
+            ))
             .thenAccept(_ -> SwingUtilities.invokeLater(() -> {
                 LoadingStateManager.getInstance().stopLoading("create-review");
                 confirmed = true;
@@ -155,16 +143,5 @@ public class CreateReviewDialog extends ReviewFormDialog {
                    "Verify that all selected repositories are accessible and the branches exist on the remote.";
         }
         return "Failed to create review: " + msg;
-    }
-
-    private List<String> extractCommitHashes(List<String> commitMessages) {
-        List<String> hashes = new ArrayList<>();
-        for (String commit : commitMessages) {
-            String[] parts = commit.split("\\|", 2);
-            if (parts.length > 0) {
-                hashes.add(parts[0].trim());
-            }
-        }
-        return hashes;
     }
 }

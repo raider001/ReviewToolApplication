@@ -343,7 +343,7 @@ public class GitImpl implements Git {
 
     private CompletableFuture<Void> fetchNotes(Path repository) {
         return executeAsync(repository, "git", "fetch", ORIGIN, "refs/notes/*:refs/notes/*")
-            .thenCompose(ignored -> mergeAllNotes(repository))
+            .thenApply(ignored -> (Void) null)
             .handle((ignored, ex) -> {
                 if (ex == null) {
                     return CompletableFuture.<Void>completedFuture(null);
@@ -405,18 +405,21 @@ public class GitImpl implements Git {
                 }
 
                 List<CompletableFuture<Void>> mergeFutures = noteRefs.stream()
-                    .map(ref -> executeAsync(repository, "git", "notes", "--ref=" + ref, "merge", "-s", "union", "origin/" + ref)
-                        .thenApply(ignored -> (Void) null)
-                        .exceptionally(mergeEx -> {
-                            String msg = mergeEx.getMessage();
-                            if (msg != null && (msg.contains("No notes to merge") ||
-                                               msg.contains("Already up to date") ||
-                                               msg.contains("not found"))) {
+                    .map(ref -> {
+                        String remoteRef = "refs/remotes/origin/" + ref.substring("refs/".length());
+                        return executeAsync(repository, "git", "notes", "--ref=" + ref, "merge", "-s", "union", remoteRef)
+                            .thenApply(ignored -> (Void) null)
+                            .exceptionally(mergeEx -> {
+                                String msg = mergeEx.getMessage();
+                                if (msg != null && (msg.contains("No notes to merge") ||
+                                                   msg.contains("Already up to date") ||
+                                                   msg.contains("not found"))) {
+                                    return null;
+                                }
+                                logger.warn("Failed to merge notes for {}: {}", ref, msg);
                                 return null;
-                            }
-                            logger.warn("Failed to merge notes for {}: {}", ref, msg);
-                            return null;
-                        }))
+                            });
+                    })
                     .toList();
 
                 if (mergeFutures.isEmpty()) {
@@ -643,7 +646,7 @@ public class GitImpl implements Git {
 
     private CompletableFuture<String> resolveSingleBranch(Path repoPath, String branchInput) {
         String branch = branchInput.trim();
-        if (branch.isEmpty() || branch.startsWith("refs/") || branch.contains("[")) {
+        if (branch.isEmpty() || branch.startsWith("refs/") || branch.startsWith("origin/") || branch.contains("[")) {
             return CompletableFuture.completedFuture(branch);
         }
 
