@@ -26,6 +26,8 @@
         <module>ReviewToolDefaultUserPlugin</module>
         <module>ReviewToolDefaultSyntaxHighlighterPlugin</module>
         <module>ReviewToolApplication</module>
+        <module>ReviewToolCentralIndexer</module>
+        <module>ReviewToolCentralIndexerPluginApi</module>
     </modules>
 
     <dependencyManagement>

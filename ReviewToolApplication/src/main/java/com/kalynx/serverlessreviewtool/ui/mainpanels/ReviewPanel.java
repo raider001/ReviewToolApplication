@@ -101,7 +101,7 @@ public class ReviewPanel extends ThemedPanel {
         this.toastWindow = new UpdateToastWindow(this);
 
         this.loadController = new ReviewLoadController(reviewContextManager, reviewPanelModel,
-            fileDiffManager, git, settingsManager, codePanel);
+            fileDiffManager, git, codePanel);
         this.reviewerDecisionHandler = new ReviewerDecisionHandler(reviewContextManager, reviewPanelModel,
             settingsManager, () -> currentReviewContext, ctx -> currentReviewContext = ctx);
         this.membershipHandler = new ReviewMembershipHandler(reviewContextManager, reviewPanelModel,

@@ -1,6 +1,5 @@
 package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel;
 
-import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.managers.FileDiffManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
@@ -40,14 +39,12 @@ public class ReviewLoadController {
      * @param model                shared panel model
      * @param fileDiffManager      file diff loading manager
      * @param git                  git operations
-     * @param settingsManager      settings access
      * @param codePanel            code viewer panel, used for viewport restore
      */
     public ReviewLoadController(ReviewContextManager reviewContextManager,
                                 ReviewPanelModel model,
                                 FileDiffManager fileDiffManager,
                                 Git git,
-                                SettingsManager settingsManager,
                                 CodePanel codePanel) {
         this.reviewContextManager = reviewContextManager;
         this.model = model;

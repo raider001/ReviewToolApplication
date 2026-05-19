@@ -1,6 +1,8 @@
 # Maven build output
 target/
 out/
+!**/src/main/**/target/
+!**/src/test/**/target/
 
 # IntelliJ IDEA
 .idea/
@@ -49,7 +51,23 @@ desktop.ini
 # Credentials and secrets
 *.env
 secrets.properties
+*.key
+*.pem
+*.p12
+*.jks
 
-# Local override files
+# Local application data files
+repositories.json
 repositories.json.orig
 users.txt
+
+# Backup and temp files
+*.orig
+*.bak
+*.tmp
+*~
+
+# JVM crash logs
+hs_err_pid*
+replay_pid*
+
