@@ -257,7 +257,7 @@ public class ReviewMetadataLoader {
         long readAllMetadataStart = System.nanoTime();
         return notesManager.readAllMetadata(reviewId)
             .thenCombine(commentsFuture, (metadata, comments) -> {
-                LOGGER.info("TIMING [{}] readAllMetadata (repo={}): {}ms",
+                LOGGER.debug("TIMING [{}] readAllMetadata (repo={}): {}ms",
                     reviewId, primaryRepoName, elapsedMs(readAllMetadataStart));
                 String title = getLatestValue(metadata.titles());
                 String description = getLatestValue(metadata.descriptions());
@@ -400,7 +400,7 @@ public class ReviewMetadataLoader {
                     .map(CompletableFuture::join)
                     .filter(Objects::nonNull)
                     .toList();
-                LOGGER.info("TIMING [{}] findAllRepositoriesContainingReview ({} candidates, {} found, parallel): {}ms",
+                LOGGER.debug("TIMING [{}] findAllRepositoriesContainingReview ({} candidates, {} found, parallel): {}ms",
                     reviewId, candidateRepositories.size(), found.size(), elapsedMs(start));
                 return found;
             });

@@ -683,4 +683,64 @@ public class GitImpl implements Git {
                 return cloneRepository(remoteUrl);
             });
     }
+
+    @Override
+    public CompletableFuture<List<String>> readNotesBatch(String repository, String anchorCommit, List<String> noteRefs) {
+        if (noteRefs == null || noteRefs.isEmpty()) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+
+        Path repoPath = gitLocalPath.resolve(repository);
+        if (!Files.exists(repoPath)) {
+            return CompletableFuture.failedFuture(new RuntimeException("Repository not found: " + repository));
+        }
+
+        StringBuilder stdin = new StringBuilder();
+        for (String noteRef : noteRefs) {
+            stdin.append(noteRef).append(":").append(anchorCommit).append("\n");
+        }
+
+        CompletableFuture<List<String>> future = new CompletableFuture<>();
+        ProcessUtils.runProcess("git", "cat-file", "--batch")
+            .workingDirectory(repoPath)
+            .stdin(stdin.toString())
+            .timeout(Duration.ofSeconds(30))
+            .onSuccess(output -> future.complete(parseBatchOutput(noteRefs.size(), output)))
+            .onFailure(err -> future.completeExceptionally(new RuntimeException("git cat-file --batch failed: " + err)))
+            .onTimeout(() -> future.completeExceptionally(new RuntimeException("git cat-file --batch timed out for " + repository)))
+            .runAsync();
+        return future;
+    }
+
+    private List<String> parseBatchOutput(int count, String output) {
+        List<String> results = new ArrayList<>(count);
+        int pos = 0;
+        for (int i = 0; i < count; i++) {
+            int headerEnd = output.indexOf('\n', pos);
+            if (headerEnd < 0) {
+                results.add("");
+                continue;
+            }
+            String header = output.substring(pos, headerEnd);
+            if (header.endsWith(" missing")) {
+                results.add("");
+                pos = headerEnd + 1;
+            } else {
+                int lastSpace = header.lastIndexOf(' ');
+                int sizeBytes;
+                try {
+                    sizeBytes = Integer.parseInt(header.substring(lastSpace + 1));
+                } catch (NumberFormatException e) {
+                    results.add("");
+                    pos = headerEnd + 1;
+                    continue;
+                }
+                pos = headerEnd + 1;
+                int contentEnd = Math.min(pos + sizeBytes, output.length());
+                results.add(output.substring(pos, contentEnd));
+                pos = contentEnd + 1;
+            }
+        }
+        return results;
+    }
 }

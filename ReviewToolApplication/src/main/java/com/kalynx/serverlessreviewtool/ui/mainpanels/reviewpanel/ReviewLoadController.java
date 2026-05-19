@@ -1,6 +1,5 @@
 package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel;
 
-import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.managers.FileDiffManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
@@ -40,14 +39,12 @@ public class ReviewLoadController {
      * @param model                shared panel model
      * @param fileDiffManager      file diff loading manager
      * @param git                  git operations
-     * @param settingsManager      settings access
      * @param codePanel            code viewer panel, used for viewport restore
      */
     public ReviewLoadController(ReviewContextManager reviewContextManager,
                                 ReviewPanelModel model,
                                 FileDiffManager fileDiffManager,
                                 Git git,
-                                SettingsManager settingsManager,
                                 CodePanel codePanel) {
         this.reviewContextManager = reviewContextManager;
         this.model = model;
@@ -94,7 +91,7 @@ public class ReviewLoadController {
         }
 
         long overallStart = System.nanoTime();
-        LOGGER.info("TIMING [{}] === REVIEW LOAD START ===", reviewId);
+        LOGGER.debug("TIMING [{}] === REVIEW LOAD START ===", reviewId);
         LOGGER.debug("Repository Names from ReviewItem: {}", repositoryNames);
 
         CompletableFuture<Void> upfrontFetchFuture = buildUpfrontFetchFuture(reviewItem, repositoryNames, reviewId);
@@ -102,7 +99,7 @@ public class ReviewLoadController {
 
         return reviewContextManager.loadReviewMetadata(reviewId, repositoryNames, reviewItem.getPrimaryRepository())
             .thenCompose(reviewContext -> {
-                LOGGER.info("TIMING [{}] loadReviewMetadata: {}ms", reviewId, elapsedMs(metadataStart));
+                LOGGER.debug("TIMING [{}] loadReviewMetadata: {}ms", reviewId, elapsedMs(metadataStart));
 
                 if (reviewContext == null) {
                     LOGGER.warn("ReviewContext is null for review: {}", reviewId);
@@ -136,7 +133,7 @@ public class ReviewLoadController {
                 }
             })
             .exceptionally(error -> {
-                LOGGER.info("TIMING [{}] === REVIEW LOAD FAILED: {}ms ===", reviewId, elapsedMs(overallStart));
+                LOGGER.debug("TIMING [{}] === REVIEW LOAD FAILED: {}ms ===", reviewId, elapsedMs(overallStart));
                 model.setError("Failed to load review: " + error.getMessage());
                 return null;
             });
@@ -156,7 +153,7 @@ public class ReviewLoadController {
             .map(repoName -> git.fetchBranches(repoName, branchesToFetch))
             .toList();
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenRun(() -> LOGGER.info("TIMING [{}] git.fetchBranchesUpfront ({} repos, targeted): {}ms",
+            .thenRun(() -> LOGGER.debug("TIMING [{}] git.fetchBranchesUpfront ({} repos, targeted): {}ms",
                 reviewId, repositoryNames.size(), elapsedMs(fetchStart)));
     }
 
@@ -186,7 +183,7 @@ public class ReviewLoadController {
             .map(repo -> git.fetchBranches(repo.getName(), branchesToFetch))
             .toList();
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenRun(() -> LOGGER.info("TIMING [{}] git.fetchBranches ({} repos, targeted): {}ms",
+            .thenRun(() -> LOGGER.debug("TIMING [{}] git.fetchBranches ({} repos, targeted): {}ms",
                 reviewId, repositories.size(), elapsedMs(fetchStart)));
     }
 
@@ -221,7 +218,7 @@ public class ReviewLoadController {
         CompletableFuture<List<ReviewFile>> finalFilesFuture = filesFuture;
         return CompletableFuture.allOf(commitsFuture, filesFuture)
             .thenAccept(_ -> {
-                LOGGER.info("TIMING [{}] commits+files (parallel): {}ms", reviewId, elapsedMs(commitsAndFilesStart));
+                LOGGER.debug("TIMING [{}] commits+files (parallel): {}ms", reviewId, elapsedMs(commitsAndFilesStart));
                 List<ReviewFile> allFiles = finalFilesFuture.join();
                 logFiles(allFiles);
                 long totalElapsedMs = elapsedMs(overallStart);
@@ -236,7 +233,7 @@ public class ReviewLoadController {
                     if (postLoadNotificationMessage != null && !postLoadNotificationMessage.isBlank()) {
                         showToast.accept(postLoadNotificationMessage);
                     }
-                    LOGGER.info("TIMING [{}] === REVIEW LOAD COMPLETE: {}ms total ===", reviewId, totalElapsedMs);
+                    LOGGER.debug("TIMING [{}] === REVIEW LOAD COMPLETE: {}ms total ===", reviewId, totalElapsedMs);
                 });
             });
     }
@@ -267,14 +264,14 @@ public class ReviewLoadController {
         long commitsStart = System.nanoTime();
         CompletableFuture<Void> commits = fileDiffManager
             .loadCommitsForReview(primaryRepo.getName(), remoteBranch, 1000)
-            .thenRun(() -> LOGGER.info("TIMING [{}] loadCommitsForReview ({}): {}ms",
+            .thenRun(() -> LOGGER.debug("TIMING [{}] loadCommitsForReview ({}): {}ms",
                 reviewId, primaryRepo.getName(), elapsedMs(commitsStart)));
 
         long filesStart = System.nanoTime();
         CompletableFuture<List<ReviewFile>> files = reviewContextManager
             .loadFilesFromReviewCommits(repositories, reviewContext.getBranch(), reviewContext.getBaseBranch())
             .thenApply(fileList -> {
-                LOGGER.info("TIMING [{}] loadFilesFromReviewCommits ({} repos): {}ms",
+                LOGGER.debug("TIMING [{}] loadFilesFromReviewCommits ({} repos): {}ms",
                     reviewId, repositories.size(), elapsedMs(filesStart));
                 return fileList;
             });

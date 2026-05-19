@@ -18,7 +18,7 @@ import java.util.concurrent.CompletableFuture;
  * Updates CodeViewerModel which triggers UI updates.
  */
 public class FileDiffManager {
-    private static final Logger logger = LoggerFactory.getLogger(FileDiffManager.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(FileDiffManager.class);
 
     private final Git git;
     private final CodeViewerModel codeViewerModel;
@@ -40,21 +40,20 @@ public class FileDiffManager {
      */
     public CompletableFuture<Void> loadCommitsForReview(String repositoryName, String branch, int maxCommits) {
         if (branch == null || branch.isBlank()) {
-            logger.warn("Cannot load commits for repository {}: branch ref is blank", repositoryName);
+            LOGGER.warn("Cannot load commits for repository {}: branch ref is blank", repositoryName);
             codeViewerModel.setAvailableCommits(new ArrayList<>());
             return CompletableFuture.completedFuture(null);
         }
-        logger.info("Loading commits for repository: {}, branch: {}, max: {}", repositoryName, branch, maxCommits);
+        LOGGER.info("Loading commits for repository: {}, branch: {}, max: {}", repositoryName, branch, maxCommits);
         long start = System.nanoTime();
-
         return git.listCommits(repositoryName, branch, maxCommits)
             .thenApply(this::parseCommits)
             .thenCompose(commits -> {
-                logger.info("TIMING loadCommitsForReview git.listCommits (repo={}, branch={}): {}ms",
+                LOGGER.debug("TIMING loadCommitsForReview git.listCommits (repo={}, branch={}): {}ms",
                     repositoryName, branch, elapsedMs(start));
-                logger.info("Loaded {} commits", commits.size());
+                LOGGER.info("Loaded {} commits", commits.size());
                 if (commits.isEmpty()) {
-                    logger.warn("No commits found for repository: {}, branch: {}", repositoryName, branch);
+                    LOGGER.warn("No commits found for repository: {}, branch: {}", repositoryName, branch);
                     codeViewerModel.setAvailableCommits(new ArrayList<>());
                     return CompletableFuture.completedFuture(null);
                 }
@@ -70,18 +69,18 @@ public class FileDiffManager {
 
                         if (codeViewerModel.startCommit.getValue() == null || codeViewerModel.endCommit.getValue() == null) {
                             Commit baselineCommit = startCommit != null ? startCommit : commits.getLast();
-                            logger.info("Setting initial commit range: start={} (baseline), end={} (latest)",
+                            LOGGER.info("Setting initial commit range: start={} (baseline), end={} (latest)",
                                 baselineCommit.getShortHash(), endCommit.getShortHash());
                             codeViewerModel.setCommitRange(baselineCommit, endCommit);
                         } else {
-                            logger.info("Preserving existing commit range: start={}, end={}",
+                            LOGGER.info("Preserving existing commit range: start={}, end={}",
                                 codeViewerModel.startCommit.getValue().getShortHash(),
                                 codeViewerModel.endCommit.getValue().getShortHash());
                         }
                     });
             })
             .exceptionally(error -> {
-                logger.error("Failed to load commits: {}", error.getMessage(), error);
+                LOGGER.error("Failed to load commits: {}", error.getMessage(), error);
                 codeViewerModel.setAvailableCommits(new ArrayList<>());
                 return null;
             });
@@ -102,7 +101,7 @@ public class FileDiffManager {
                     "show", "-s", "--format=%H|%an|%ad|%s", "--date=short", hash)
                 .thenApply(this::parseSingleCommit)
                 .exceptionally(error -> {
-                    logger.warn("Failed to load stored commit {} in {}: {}", hash, repositoryName, error.getMessage());
+                    LOGGER.warn("Failed to load stored commit {} in {}: {}", hash, repositoryName, error.getMessage());
                     return null;
                 }))
             .toList();
@@ -132,14 +131,14 @@ public class FileDiffManager {
                             Commit baselineCommit = startCommit != null ? startCommit : commits.getLast();
                             codeViewerModel.setCommitRange(baselineCommit, endCommit);
                         } else {
-                            logger.info("Preserving existing commit range during snapshot load: start={}, end={}",
+                            LOGGER.info("Preserving existing commit range during snapshot load: start={}, end={}",
                                 codeViewerModel.startCommit.getValue().getShortHash(),
                                 codeViewerModel.endCommit.getValue().getShortHash());
                         }
                     });
             })
             .exceptionally(error -> {
-                logger.error("Failed to load commits from snapshot: {}", error.getMessage(), error);
+                LOGGER.error("Failed to load commits from snapshot: {}", error.getMessage(), error);
                 codeViewerModel.setAvailableCommits(new ArrayList<>());
                 return null;
             });
@@ -163,7 +162,7 @@ public class FileDiffManager {
             return CompletableFuture.completedFuture(null);
         }
 
-        logger.info("Loading diff for file {} between commits {} and {}",
+        LOGGER.info("Loading diff for file {} between commits {} and {}",
             file.getPath(), startCommit.getShortHash(), endCommit.getShortHash());
 
         String operationId = "load-diff-" + file.getPath() + "@" + startCommit.getShortHash() + ".." + endCommit.getShortHash();
@@ -176,7 +175,7 @@ public class FileDiffManager {
             startCommit.getHash() + ":" + file.getPath())
             .exceptionally(error -> {
                 String errorMsg = error.getMessage();
-                logger.warn("File {} not found in commit {}: {}",
+                LOGGER.warn("File {} not found in commit {}: {}",
                     file.getPath(), startCommit.getShortHash(), errorMsg);
                 return "// File does not exist in commit " + startCommit.getShortHash() + "\n" +
                        "// Path: " + file.getPath();
@@ -186,7 +185,7 @@ public class FileDiffManager {
             endCommit.getHash() + ":" + file.getPath())
             .exceptionally(error -> {
                 String errorMsg = error.getMessage();
-                logger.warn("File {} not found in commit {}: {}",
+                LOGGER.warn("File {} not found in commit {}: {}",
                     file.getPath(), endCommit.getShortHash(), errorMsg);
                 return "// File does not exist in commit " + endCommit.getShortHash() + "\n" +
                        "// Path: " + file.getPath();
@@ -201,13 +200,13 @@ public class FileDiffManager {
                 String rightContent = rightContentFuture.join();
                 String unifiedDiff = unifiedDiffFuture.join();
 
-                logger.info("Loaded content - Left: {} chars, Right: {} chars, Diff: {} chars",
+                LOGGER.info("Loaded content - Left: {} chars, Right: {} chars, Diff: {} chars",
                     leftContent.length(), rightContent.length(), unifiedDiff.length());
 
                 codeViewerModel.setFileContent(leftContent, rightContent, unifiedDiff);
             })
             .exceptionally(error -> {
-                logger.error("Failed to load diff for file {}: {}", file.getPath(), error.getMessage());
+                LOGGER.error("Failed to load diff for file {}: {}", file.getPath(), error.getMessage());
                 codeViewerModel.setFileContent(
                     "// Error loading content: " + error.getMessage(),
                     "// Error loading content: " + error.getMessage(),
@@ -224,7 +223,7 @@ public class FileDiffManager {
         return git.executeAsync(repositoryName, "diff", fromCommit, toCommit, "--", filePath)
             .exceptionally(error -> {
                 String errorMsg = error.getMessage();
-                logger.warn("Failed to generate unified diff for {}: {}", filePath, errorMsg);
+                LOGGER.warn("Failed to generate unified diff for {}: {}", filePath, errorMsg);
 
                 // Return a descriptive message for the diff pane
                 return "# Unable to generate diff\n" +
@@ -276,10 +275,10 @@ public class FileDiffManager {
                 if (parts.length >= 4) {
                     commits.add(new Commit(parts[0], parts[3], parts[1], parts[2]));
                 } else {
-                    logger.warn("Skipping malformed commit line: '{}' (only {} parts)", commitString, parts.length);
+                    LOGGER.warn("Skipping malformed commit line: '{}' (only {} parts)", commitString, parts.length);
                 }
             } catch (Exception e) {
-                logger.error("Error parsing commit line '{}': {}", commitString, e.getMessage(), e);
+                LOGGER.error("Error parsing commit line '{}': {}", commitString, e.getMessage(), e);
             }
         }
         return commits;

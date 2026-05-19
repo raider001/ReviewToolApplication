@@ -219,6 +219,8 @@ class GitReviewNotesManagerUnitTests {
         public CompletableFuture<java.util.List<String>> listCommits(String repository, String ref, int maxCount) { return CompletableFuture.completedFuture(java.util.List.of()); }
         @Override
         public CompletableFuture<java.util.List<String>> listChangedFiles(String repository, String fromCommit, String toCommit) { return CompletableFuture.completedFuture(java.util.List.of()); }
+        @Override
+        public CompletableFuture<java.util.List<String>> readNotesBatch(String repository, String anchorCommit, java.util.List<String> noteRefs) { return CompletableFuture.completedFuture(java.util.Collections.nCopies(noteRefs.size(), "")); }
     }
 }
 

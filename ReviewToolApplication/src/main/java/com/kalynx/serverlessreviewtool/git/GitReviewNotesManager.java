@@ -1,6 +1,7 @@
 package com.kalynx.serverlessreviewtool.git;
 
 import com.kalynx.serverlessreviewtool.models.review.*;
+import com.kalynx.serverlessreviewtool.utils.NdjsonReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,16 +36,6 @@ public class GitReviewNotesManager {
     public CompletableFuture<Void> writeReviewTitle(String reviewId, String editor, String title) {
         return writeToStream(reviewId, "metadata/title",
             () -> ReviewStreamHelper.writeTitle(getStreamPath(reviewId, "metadata/title"), editor, title));
-    }
-
-    public CompletableFuture<Void> writeReviewDescription(String reviewId, String editor, String description) {
-        return writeToStream(reviewId, "metadata/description",
-            () -> ReviewStreamHelper.writeDescription(getStreamPath(reviewId, "metadata/description"), editor, description));
-    }
-
-    public CompletableFuture<Void> writeReviewAuthor(String reviewId, String editor, String author) {
-        return writeToStream(reviewId, "metadata/author",
-            () -> ReviewStreamHelper.writeAuthor(getStreamPath(reviewId, "metadata/author"), editor, author));
     }
 
     public CompletableFuture<Void> writeReviewStatus(String reviewId, String editor, String status) {
@@ -312,7 +303,7 @@ public class GitReviewNotesManager {
 
         return fetchNotesBatch(refspecs)
             .thenApply(ignored -> {
-                LOGGER.info("TIMING [{}] fetchAllNotesBatch ({}/{} streams): {}ms",
+                LOGGER.debug("TIMING [{}] fetchAllNotesBatch ({}/{} streams): {}ms",
                     reviewId, repositoryName, streamPaths.size(), elapsedMs(batchStart));
                 return (Throwable) null;
             })
@@ -335,7 +326,7 @@ public class GitReviewNotesManager {
                 long fallbackStart = System.nanoTime();
                 return fetchAllNotesIndividually(reviewId, streamPaths)
                     .thenApply(_ -> {
-                        LOGGER.info("TIMING [{}] fetchAllNotesFallback ({}/{} streams): {}ms",
+                        LOGGER.debug("TIMING [{}] fetchAllNotesFallback ({}/{} streams): {}ms",
                             reviewId, repositoryName, streamPaths.size(), elapsedMs(fallbackStart));
                         return null;
                     });
@@ -702,7 +693,7 @@ public class GitReviewNotesManager {
             }
             throw new RuntimeException("Failed to fetch notes: " + msg, ex);
         }).thenApply(ignored -> {
-            LOGGER.info("TIMING [{}] fetchAndMergeNotes ({}/{}): {}ms",
+            LOGGER.debug("TIMING [{}] fetchAndMergeNotes ({}/{}): {}ms",
                 reviewId, repositoryName, streamPath, elapsedMs(start));
             return null;
         });
@@ -795,30 +786,11 @@ public class GitReviewNotesManager {
                 ReviewStreamHelper::readTitles);
     }
 
-    public CompletableFuture<List<StreamEntry<String>>> readDescriptions(String reviewId) {
-        return readStream(reviewId, "metadata/description",
-                ReviewStreamHelper::readDescriptions);
-    }
-
-    public CompletableFuture<List<StreamEntry<String>>> readAuthors(String reviewId) {
-        return readStream(reviewId, "metadata/author",
-                ReviewStreamHelper::readAuthors);
-    }
-
-    public CompletableFuture<List<StreamEntry<String>>> readStatuses(String reviewId) {
-        return readStream(reviewId, "metadata/status",
-                ReviewStreamHelper::readStatuses);
-    }
-
     public CompletableFuture<List<StreamEntry<List<String>>>> readCommits(String reviewId) {
         return readStream(reviewId, "metadata/commits",
                 ReviewStreamHelper::readCommits);
     }
 
-    public CompletableFuture<List<StreamEntry<ReviewerData>>> readReviewers(String reviewId) {
-        return readStream(reviewId, "reviewers",
-                ReviewStreamHelper::readReviewers);
-    }
 
     public CompletableFuture<List<StreamEntry<CommentMetadata>>> readCommentMetadata(String reviewId, String commentId) {
         return readStream(reviewId, "comments/" + commentId + "/metadata",
@@ -880,6 +852,27 @@ public class GitReviewNotesManager {
         return readAllMetadataInternal(reviewId, false);
     }
 
+    /**
+     * Reads only the primaryRepository flag for a review with a single git operation.
+     * Returns {@code true} if this repository is the primary (or unknown), {@code false} if it is a
+     * confirmed secondary reference — allowing callers to skip the full 9-stream metadata load.
+     *
+     * @param reviewId the review identifier
+     * @return future containing {@code true} if primary (or indeterminate), {@code false} if secondary
+     */
+    public CompletableFuture<Boolean> isPrimaryRepository(String reviewId) {
+        return getRepositoryRootCommit()
+            .thenCompose(anchorCommit -> {
+                String ref = NOTES_REF_PREFIX + reviewId + "/metadata/primaryRepository";
+                return git.executeAsync(repositoryName, "notes", "--ref=" + ref, "show", anchorCommit);
+            })
+            .thenApply(content -> {
+                String value = content.trim();
+                return !"false".equalsIgnoreCase(value.isEmpty() ? "true" : value);
+            })
+            .exceptionally(_ -> true);
+    }
+
     private CompletableFuture<ReviewMetadata> readAllMetadataInternal(String reviewId, boolean fetchRemoteNotes) {
         List<String> streamPaths = List.of(
             "metadata/title",
@@ -893,17 +886,14 @@ public class GitReviewNotesManager {
             "metadata/repositoryActive"
         );
 
-        CompletableFuture<Void> fetchFuture;
-        if (fetchRemoteNotes) {
-            long fetchAllStart = System.nanoTime();
-            fetchFuture = fetchAllNotes(reviewId, streamPaths)
-                .thenRun(() -> LOGGER.info("TIMING [{}] readAllMetadata fetchAllNotes ({} streams, parallel, repo={}): {}ms",
-                    reviewId, streamPaths.size(), repositoryName, elapsedMs(fetchAllStart)));
-        } else {
-            fetchFuture = CompletableFuture.completedFuture(null);
+        if (!fetchRemoteNotes) {
+            return readAllMetadataBatch(reviewId, streamPaths);
         }
 
-        return fetchFuture
+        long fetchAllStart = System.nanoTime();
+        return fetchAllNotes(reviewId, streamPaths)
+            .thenRun(() -> LOGGER.debug("TIMING [{}] readAllMetadata fetchAllNotes ({} streams, parallel, repo={}): {}ms",
+                reviewId, streamPaths.size(), repositoryName, elapsedMs(fetchAllStart)))
             .thenCompose(ignored -> getAnchorCommit())
             .thenCompose(anchorCommit -> {
                 long extractStart = System.nanoTime();
@@ -913,7 +903,7 @@ public class GitReviewNotesManager {
 
                 return CompletableFuture.allOf(extractFutures.toArray(new CompletableFuture[0]))
                     .thenApply(ignored2 -> {
-                        LOGGER.info("TIMING [{}] readAllMetadata extractNoteToFile ({} streams, parallel, repo={}): {}ms",
+                        LOGGER.debug("TIMING [{}] readAllMetadata extractNoteToFile ({} streams, parallel, repo={}): {}ms",
                             reviewId, streamPaths.size(), repositoryName, elapsedMs(extractStart));
                         try {
                             Path titlePath = extractFutures.get(0).join();
@@ -952,6 +942,48 @@ public class GitReviewNotesManager {
                         }
                     });
             });
+    }
+
+    private CompletableFuture<ReviewMetadata> readAllMetadataBatch(String reviewId, List<String> streamPaths) {
+        List<String> noteRefs = streamPaths.stream()
+            .map(sp -> NOTES_REF_PREFIX + reviewId + "/" + sp)
+            .toList();
+
+        return getAnchorCommit()
+            .thenCompose(anchorCommit -> {
+                long start = System.nanoTime();
+                return git.readNotesBatch(repositoryName, anchorCommit, noteRefs)
+                    .thenApply(contents -> {
+                        LOGGER.debug("TIMING [{}] readAllMetadata batch ({} streams, single process, repo={}): {}ms",
+                            reviewId, streamPaths.size(), repositoryName, elapsedMs(start));
+                        try {
+                            return new ReviewMetadata(
+                                parseAndSort(contents.get(0), String.class),
+                                parseAndSort(contents.get(1), String.class),
+                                parseAndSort(contents.get(2), String.class),
+                                parseAndSort(contents.get(3), String.class),
+                                parseAndSort(contents.get(4), String.class),
+                                parseAndSort(contents.get(5), String.class),
+                                parseAndSort(contents.get(6), String.class),
+                                NdjsonReader.readFromString(contents.get(7), ReviewerData.class),
+                                NdjsonReader.readFromString(contents.get(8), RepositoryActiveData.class)
+                            );
+                        } catch (Exception e) {
+                            throw new RuntimeException("Failed to parse batch metadata: " + e.getMessage(), e);
+                        }
+                    });
+            });
+    }
+
+    private <T> List<StreamEntry<T>> parseAndSort(String content, Class<T> dataType) {
+        List<StreamEntry<T>> entries = NdjsonReader.readFromString(content, dataType);
+        if (entries.size() <= 1) {
+            return entries;
+        }
+        return entries.stream()
+            .filter(e -> e.timestamp() != null)
+            .sorted(Comparator.comparing(StreamEntry::timestamp))
+            .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
     }
 
     /**

@@ -47,6 +47,39 @@ public class NdjsonReader {
 
         return entries;
     }
+
+    /**
+     * Parses NDJSON entries directly from a string without reading from disk.
+     *
+     * @param content raw NDJSON content
+     * @param dataType the type parameter for each stream entry's data field
+     * @return parsed stream entries
+     */
+    public static <T> List<StreamEntry<T>> readFromString(String content, Class<T> dataType) {
+        Type type = TypeToken.getParameterized(StreamEntry.class, dataType).getType();
+        return readFromString(content, type);
+    }
+
+    /**
+     * Parses NDJSON entries directly from a string without reading from disk.
+     *
+     * @param content raw NDJSON content
+     * @param type the full generic type for each stream entry
+     * @return parsed stream entries
+     */
+    public static <T> List<StreamEntry<T>> readFromString(String content, Type type) {
+        if (content == null || content.isBlank()) {
+            return new ArrayList<>();
+        }
+        List<StreamEntry<T>> entries = new ArrayList<>();
+        for (String line : content.split("\n")) {
+            line = line.trim();
+            if (!line.isEmpty()) {
+                entries.add(GSON.fromJson(line, type));
+            }
+        }
+        return entries;
+    }
 }
 
 

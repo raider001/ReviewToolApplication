@@ -95,7 +95,7 @@ public class ReviewItemLoader {
     private CompletableFuture<Void> synchronizeRepository(String repositoryName) {
         long start = System.nanoTime();
         return git.fetch(repositoryName)
-            .thenRun(() -> LOGGER.info("TIMING [{}] synchronizeRepository fetch: {}ms", repositoryName,
+            .thenRun(() -> LOGGER.debug("TIMING [{}] synchronizeRepository fetch: {}ms", repositoryName,
                 (System.nanoTime() - start) / 1_000_000))
             .exceptionally(ex -> {
                 LOGGER.warn("Failed to synchronize repository {} before reading reviews", repositoryName, ex);
@@ -142,6 +142,22 @@ public class ReviewItemLoader {
     private CompletableFuture<ReviewItem> loadReviewItem(String repositoryName, String reviewId) {
         GitReviewNotesManager notesManager = notesManagerFactory.create(repositoryName);
 
+        return notesManager.isPrimaryRepository(reviewId)
+            .thenCompose(isPrimary -> {
+                if (!isPrimary) {
+                    LOGGER.debug("Skipping full metadata load for {} in {} — secondary reference", reviewId, repositoryName);
+                    return CompletableFuture.completedFuture(
+                        new ReviewItem(reviewId, null, null, null,
+                            List.of(repositoryName), null, 0L, List.of(), null, null)
+                    );
+                }
+                return loadFullReviewItem(notesManager, repositoryName, reviewId);
+            });
+    }
+
+    private CompletableFuture<ReviewItem> loadFullReviewItem(GitReviewNotesManager notesManager,
+                                                              String repositoryName,
+                                                              String reviewId) {
         return notesManager.readAllMetadataFromLocal(reviewId)
             .thenApply(metadata -> {
                 List<StreamEntry<String>> titleEntries = metadata.titles();

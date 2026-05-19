@@ -46,7 +46,7 @@ public class ReviewCommentManager {
 
         return notesManager.listCommentIds(reviewId)
             .thenCompose(commentIds -> {
-                LOGGER.info("TIMING [{}] listCommentIds (repo={}): {}ms",
+                LOGGER.debug("TIMING [{}] listCommentIds (repo={}): {}ms",
                     reviewId, primaryRepoName, elapsedMs(listCommentsStart));
 
                 if (commentIds.isEmpty()) {
@@ -67,7 +67,7 @@ public class ReviewCommentManager {
                             .map(CompletableFuture::join)
                             .filter(Objects::nonNull)
                             .collect(Collectors.toList());
-                        LOGGER.info("TIMING [{}] loadComments ({} comments, parallel): {}ms",
+                        LOGGER.debug("TIMING [{}] loadComments ({} comments, parallel): {}ms",
                             reviewId, comments.size(), elapsedMs(loadCommentsStart));
                         return comments;
                     });

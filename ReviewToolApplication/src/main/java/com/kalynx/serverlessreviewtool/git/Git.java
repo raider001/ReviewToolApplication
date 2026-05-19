@@ -135,5 +135,20 @@ public interface Git {
      * @return future containing the command output
      */
     CompletableFuture<String> executeAsync(String repository, String... args);
+
+    /**
+     * Reads the content of multiple git notes in a single process invocation using
+     * {@code git cat-file --batch}, reducing subprocess overhead for bulk reads.
+     *
+     * <p>Each note is identified by its full ref (e.g. {@code refs/notes/reviews/ID/metadata/title})
+     * and is looked up for the blob associated with {@code anchorCommit}.
+     * If no note exists for a given ref, an empty string is returned for that ref.
+     *
+     * @param repository  local repository name
+     * @param anchorCommit full 40-char commit SHA used as the notes anchor
+     * @param noteRefs    ordered list of note refs to read
+     * @return future containing note content in the same order as {@code noteRefs}
+     */
+    CompletableFuture<List<String>> readNotesBatch(String repository, String anchorCommit, List<String> noteRefs);
 }
 

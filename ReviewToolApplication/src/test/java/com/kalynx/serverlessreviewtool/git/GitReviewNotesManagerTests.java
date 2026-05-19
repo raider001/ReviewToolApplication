@@ -112,47 +112,6 @@ class GitReviewNotesManagerTests {
         assertEquals(TEST_EDITOR, titles.getFirst().editor());
     }
 
-    @Test
-    void writeReviewDescription_newReview_writesCorrectly() throws Exception {
-        String description = "This review adds JWT-based authentication to the user service.";
-
-        notesManager.writeReviewDescription(TEST_REVIEW_ID, TEST_EDITOR, description)
-            .get(10, TimeUnit.SECONDS);
-
-        List<StreamEntry<String>> descriptions = notesManager.readDescriptions(TEST_REVIEW_ID)
-            .get(10, TimeUnit.SECONDS);
-
-        assertEquals(1, descriptions.size());
-        assertEquals(description, descriptions.getFirst().data());
-    }
-
-    @Test
-    void writeReviewAuthor_newReview_writesCorrectly() throws Exception {
-        String author = "john.doe@example.com";
-
-        notesManager.writeReviewAuthor(TEST_REVIEW_ID, TEST_EDITOR, author)
-            .get(10, TimeUnit.SECONDS);
-
-        List<StreamEntry<String>> authors = notesManager.readAuthors(TEST_REVIEW_ID)
-            .get(10, TimeUnit.SECONDS);
-
-        assertEquals(1, authors.size());
-        assertEquals(author, authors.getFirst().data());
-    }
-
-    @Test
-    void writeReviewStatus_newReview_writesCorrectly() throws Exception {
-        String status = "pending";
-
-        notesManager.writeReviewStatus(TEST_REVIEW_ID, TEST_EDITOR, status)
-            .get(10, TimeUnit.SECONDS);
-
-        List<StreamEntry<String>> statuses = notesManager.readStatuses(TEST_REVIEW_ID)
-            .get(10, TimeUnit.SECONDS);
-
-        assertEquals(1, statuses.size());
-        assertEquals(status, statuses.getFirst().data());
-    }
 
     @Test
     void writeReviewCommits_newReview_writesCorrectly() throws Exception {
@@ -176,20 +135,6 @@ class GitReviewNotesManagerTests {
         assertTrue(readCommits.contains("345mno678pqr"));
     }
 
-    @Test
-    void writeReviewer_newReview_writesCorrectly() throws Exception {
-        ReviewerData reviewer = new ReviewerData("approved", "Looks good to me!");
-
-        notesManager.writeReviewer(TEST_REVIEW_ID, TEST_EDITOR, reviewer)
-            .get(10, TimeUnit.SECONDS);
-
-        List<StreamEntry<ReviewerData>> reviewers = notesManager.readReviewers(TEST_REVIEW_ID)
-            .get(10, TimeUnit.SECONDS);
-
-        assertEquals(1, reviewers.size());
-        assertEquals("approved", reviewers.getFirst().data().getStatus());
-        assertEquals("Looks good to me!", reviewers.getFirst().data().getSummaryComment());
-    }
 
     @Test
     void writeComment_newReview_writesCorrectly() throws Exception {
@@ -231,45 +176,6 @@ class GitReviewNotesManagerTests {
             "All entries with unique IDs should be preserved");
     }
 
-    @Test
-    void writeMultipleStatuses_maintainsChronologicalOrder() throws Exception {
-        notesManager.writeReviewStatus(TEST_REVIEW_ID, TEST_EDITOR, "pending")
-            .get(10, TimeUnit.SECONDS);
-        Thread.sleep(10);
-        notesManager.writeReviewStatus(TEST_REVIEW_ID, TEST_EDITOR, "in_progress")
-            .get(10, TimeUnit.SECONDS);
-        Thread.sleep(10);
-        notesManager.writeReviewStatus(TEST_REVIEW_ID, TEST_EDITOR, "approved")
-            .get(10, TimeUnit.SECONDS);
-
-        List<StreamEntry<String>> statuses = notesManager.readStatuses(TEST_REVIEW_ID)
-            .get(10, TimeUnit.SECONDS);
-
-        assertEquals(3, statuses.size());
-        assertTrue(statuses.get(0).timestamp().isBefore(statuses.get(1).timestamp()));
-        assertTrue(statuses.get(1).timestamp().isBefore(statuses.get(2).timestamp()));
-    }
-
-    @Test
-    void writeMultipleReviewers_preservesAll() throws Exception {
-        notesManager.writeReviewer(TEST_REVIEW_ID, "reviewer1@example.com",
-            new ReviewerData("approved", "LGTM"))
-            .get(10, TimeUnit.SECONDS);
-        notesManager.writeReviewer(TEST_REVIEW_ID, "reviewer2@example.com",
-            new ReviewerData("changes_requested", "Please address my comments"))
-            .get(10, TimeUnit.SECONDS);
-        notesManager.writeReviewer(TEST_REVIEW_ID, "reviewer3@example.com",
-            new ReviewerData("approved", "Great work!"))
-            .get(10, TimeUnit.SECONDS);
-
-        List<StreamEntry<ReviewerData>> reviewers = notesManager.readReviewers(TEST_REVIEW_ID)
-            .get(10, TimeUnit.SECONDS);
-
-        assertEquals(3, reviewers.size());
-        assertEquals("reviewer1@example.com", reviewers.get(0).editor());
-        assertEquals("reviewer2@example.com", reviewers.get(1).editor());
-        assertEquals("reviewer3@example.com", reviewers.get(2).editor());
-    }
 
     @Test
     void writeMultipleComments_maintainsOrder() throws Exception {
@@ -323,18 +229,14 @@ class GitReviewNotesManagerTests {
 
         List<StreamEntry<String>> titles = notesManager.readTitles(TEST_REVIEW_ID)
             .get(10, TimeUnit.SECONDS);
-        List<StreamEntry<String>> statuses = notesManager.readStatuses(TEST_REVIEW_ID)
-            .get(10, TimeUnit.SECONDS);
         List<String> commentIds = notesManager.listCommentIds(TEST_REVIEW_ID)
             .get(10, TimeUnit.SECONDS);
         List<StreamEntry<GitReviewNotesManager.CommentTextData>> textData =
             notesManager.readCommentText(TEST_REVIEW_ID, commentId).get(10, TimeUnit.SECONDS);
 
         assertEquals(1, titles.size());
-        assertEquals(1, statuses.size());
         assertEquals(1, commentIds.size());
         assertEquals("My Review", titles.getFirst().data());
-        assertEquals("pending", statuses.getFirst().data());
         assertEquals("A comment", textData.getFirst().data().text());
     }
 
