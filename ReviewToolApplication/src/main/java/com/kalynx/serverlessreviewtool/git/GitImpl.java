@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -18,8 +19,6 @@ import java.util.stream.Stream;
 /**
  * GitImpl provides an asynchronous implementation of the Git interface using CompletableFuture.
  * All Git commands are executed via ProcessUtils async API in a separate process.
- * This class is responsible for managing Git repositories, including initializing repositories,
- * fetching and pushing notes, and managing references.
  */
 public class GitImpl implements Git {
 
@@ -67,9 +66,7 @@ public class GitImpl implements Git {
                         .thenCompose(ignored -> detachHead(repoPath));
                 }
             })
-            .thenCompose(ignored -> configureNotesMergeStrategy(repoPath))
-            .thenCompose(ignored -> fetchAllBranches(repoPath))
-            .thenCompose(ignored -> fetchNotes(repoPath));
+            .thenCompose(ignored -> fetchAllBranches(repoPath));
     }
 
     private CompletableFuture<Void> prepareRepositoryPathForClone(Path repoPath) {
@@ -132,16 +129,18 @@ public class GitImpl implements Git {
 
     @Override
     public CompletableFuture<Void> pull(String repository) {
+        // The local clone is always in detached-HEAD state (see cloneRepository/detachHead),
+        // so "git pull origin" won't work without being on a branch.
+        // Instead: fetch, then hard-reset to origin/HEAD (the remote's default branch).
         Path repoPath = gitLocalPath.resolve(repository);
-        return executeAsync(repoPath, "git", "pull", ORIGIN)
-            .thenCompose(ignored -> fetchNotes(repoPath));
+        return executeAsync(repoPath, "git", "fetch", ORIGIN)
+            .thenCompose(ignored -> executeAsync(repoPath, "git", "reset", "--hard", "origin/HEAD"))
+            .thenApply(ignored -> null);
     }
 
     @Override
     public CompletableFuture<Void> fetch(String repository) {
-        Path repoPath = gitLocalPath.resolve(repository);
-        return fetchBranches(repository, List.of("*"))
-            .thenCompose(ignored -> fetchNotes(repoPath));
+        return fetchBranches(repository, List.of("*"));
     }
 
     @Override
@@ -224,63 +223,6 @@ public class GitImpl implements Git {
         return "+refs/heads/" + branch + ":refs/remotes/origin/" + branch;
     }
 
-    @Override
-    public CompletableFuture<Void> pushNotes(String repository, List<String> notes) {
-        Path repoPath = gitLocalPath.resolve(repository);
-        if (notes == null || notes.isEmpty()) {
-            return CompletableFuture.completedFuture(null);
-        }
-
-        List<CompletableFuture<String>> pushFutures = notes.stream()
-            .map(noteRef -> executeAsync(repoPath, "git", "push", ORIGIN, noteRef))
-            .toList();
-
-        return CompletableFuture.allOf(pushFutures.toArray(new CompletableFuture[0]))
-            .thenApply(ignored -> null);
-    }
-
-    @Override
-    public CompletableFuture<Void> appendToNotes(String repository, String note, String data) {
-        Path repoPath = gitLocalPath.resolve(repository);
-
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                return Files.createTempFile("git-notes", ".txt");
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to create temp file", e);
-            }
-        }).thenCompose(tempFile -> {
-            CompletableFuture<Void> future = refExists(repoPath, note)
-                .thenCompose(exists -> {
-                    if (exists) {
-                        return readNoteContent(repoPath, note);
-                    } else {
-                        return CompletableFuture.completedFuture(new ArrayList<>());
-                    }
-                })
-                .thenCompose(existing -> {
-                    existing.add(data);
-                    try {
-                        Files.writeString(tempFile, String.join("\n", existing));
-                    } catch (IOException e) {
-                        throw new RuntimeException("Failed to write temp file", e);
-                    }
-                    return executeAsync(repoPath, "git", "hash-object", "-w", tempFile.toString());
-                })
-                .thenCompose(blobHash ->
-                    executeAsync(repoPath, "git", "update-ref", note, blobHash.trim())
-                )
-                .thenApply(ignored -> null);
-
-            return future.whenComplete((ignored1, ignored2) -> {
-                try {
-                    Files.deleteIfExists(tempFile);
-                } catch (IOException ignored) {
-                }
-            });
-        });
-    }
-
     private CompletableFuture<Void> ensureRemoteConfigured(Path repoPath, String remoteUrl) {
         return executeAsync(repoPath, "git", "remote", "get-url", ORIGIN)
             .handle((currentUrl, ex) -> {
@@ -314,125 +256,6 @@ public class GitImpl implements Git {
         return executeAsync(repoPath, "git", "rev-parse", "--git-dir")
             .thenApply(output -> !output.trim().isEmpty())
             .exceptionally(_ -> false);
-    }
-
-    private CompletableFuture<Boolean> refExists(Path repoPath, String ref) {
-        return executeAsync(repoPath, "git", "show-ref", "--verify", ref)
-            .thenApply(ignored -> true)
-            .exceptionally(ex -> {
-                if (ex.getMessage() != null && ex.getMessage().contains("not a valid ref")) {
-                    return false;
-                }
-                throw new RuntimeException(ex);
-            });
-    }
-
-    private CompletableFuture<List<String>> readNoteContent(Path repoPath, String noteRef) {
-        return executeAsync(repoPath, "git", "cat-file", "-p", noteRef)
-            .thenApply(content ->
-                Arrays.stream(content.split("\n"))
-                    .filter(line -> !line.trim().isEmpty())
-                    .collect(Collectors.toList())
-            );
-    }
-
-    private CompletableFuture<Void> configureNotesMergeStrategy(Path repository) {
-        return executeAsync(repository, "git", "config", "notes.mergeStrategy", "union")
-            .thenApply(ignored -> null);
-    }
-
-    private CompletableFuture<Void> fetchNotes(Path repository) {
-        return executeAsync(repository, "git", "fetch", ORIGIN, "refs/notes/*:refs/notes/*")
-            .thenApply(ignored -> (Void) null)
-            .handle((ignored, ex) -> {
-                if (ex == null) {
-                    return CompletableFuture.<Void>completedFuture(null);
-                }
-
-                String message = ex.getMessage();
-                if (isMissingRemoteRefError(message)) {
-                    return CompletableFuture.<Void>completedFuture(null);
-                }
-
-                if (isNonFastForwardError(message)) {
-                    logger.info("Notes fetch reported non-fast-forward refs; retrying via remote-tracking refs");
-                    return fetchNotesToRemoteTracking(repository)
-                        .thenCompose(ignoredRetry -> mergeAllNotes(repository))
-                        .exceptionally(retryEx -> {
-                            logger.warn("Failed to recover notes fetch after non-fast-forward: {}", retryEx.getMessage());
-                            return null;
-                        });
-                }
-
-                logger.warn("Failed to fetch notes: {}", message);
-                return CompletableFuture.<Void>completedFuture(null);
-            })
-            .thenCompose(future -> future);
-    }
-
-    private CompletableFuture<Void> fetchNotesToRemoteTracking(Path repository) {
-        return executeAsync(
-            repository,
-            "git",
-            "fetch",
-            ORIGIN,
-            "+refs/notes/*:refs/remotes/origin/refs/notes/*"
-        ).thenApply(ignored -> null);
-    }
-
-    private boolean isMissingRemoteRefError(String message) {
-        return message != null && message.contains("Couldn't find remote ref");
-    }
-
-    private boolean isNonFastForwardError(String message) {
-        if (message == null) {
-            return false;
-        }
-        String lower = message.toLowerCase();
-        return lower.contains("non-fast-forward") || lower.contains("[rejected]");
-    }
-
-    private CompletableFuture<Void> mergeAllNotes(Path repository) {
-        return executeAsync(repository, "git", "for-each-ref", "--format=%(refname)", "refs/notes/")
-            .thenCompose(output -> {
-                List<String> noteRefs = Arrays.stream(output.split("\n"))
-                    .map(String::trim)
-                    .filter(line -> !line.isEmpty())
-                    .toList();
-
-                if (noteRefs.isEmpty()) {
-                    return CompletableFuture.completedFuture(null);
-                }
-
-                List<CompletableFuture<Void>> mergeFutures = noteRefs.stream()
-                    .map(ref -> {
-                        String remoteRef = "refs/remotes/origin/" + ref.substring("refs/".length());
-                        return executeAsync(repository, "git", "notes", "--ref=" + ref, "merge", "-s", "union", remoteRef)
-                            .thenApply(ignored -> (Void) null)
-                            .exceptionally(mergeEx -> {
-                                String msg = mergeEx.getMessage();
-                                if (msg != null && (msg.contains("No notes to merge") ||
-                                                   msg.contains("Already up to date") ||
-                                                   msg.contains("not found"))) {
-                                    return null;
-                                }
-                                logger.warn("Failed to merge notes for {}: {}", ref, msg);
-                                return null;
-                            });
-                    })
-                    .toList();
-
-                if (mergeFutures.isEmpty()) {
-                    return CompletableFuture.completedFuture(null);
-                }
-
-                return CompletableFuture.allOf(mergeFutures.toArray(new CompletableFuture[0]))
-                    .thenRun(() -> {});
-            })
-            .exceptionally(ex -> {
-                logger.warn("Failed to list note refs: {}", ex.getMessage());
-                return null;
-            });
     }
 
     private String extractRepoName(String remoteUrl) {
@@ -625,6 +448,32 @@ public class GitImpl implements Git {
                         .filter(line -> !line.trim().isEmpty())
                         .collect(Collectors.toList()));
             });
+    }
+
+    @Override
+    public CompletableFuture<List<String>> listCommitsRemote(String remoteUrl, String ref, int maxCount) {
+        String tempName = "srt-tmp-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        Path tempPath = gitLocalPath.resolve(tempName);
+        String format = "%H|%an|%ai|%s";
+
+        return executeAsync(gitLocalPath, "git", "clone", "--bare",
+                        "--depth", String.valueOf(maxCount),
+                        "--branch", ref,
+                        "--single-branch",
+                        "--no-tags",
+                        remoteUrl, tempName)
+                .thenCompose(ignored ->
+                        executeAsync(tempPath, "git", "log", "--format=" + format, "-n", String.valueOf(maxCount)))
+                .thenApply(output -> Arrays.stream(output.split("\n"))
+                        .filter(line -> !line.trim().isEmpty())
+                        .collect(Collectors.toList()))
+                .whenComplete((result, ex) -> {
+                    try {
+                        deleteDirectory(tempPath);
+                    } catch (IOException e) {
+                        logger.warn("Failed to clean up temp clone {}: {}", tempPath, e.getMessage());
+                    }
+                });
     }
 
     private CompletableFuture<String> resolveBranchRef(Path repoPath, String ref) {

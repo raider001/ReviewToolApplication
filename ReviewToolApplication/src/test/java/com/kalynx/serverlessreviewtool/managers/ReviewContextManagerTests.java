@@ -2,8 +2,9 @@ package com.kalynx.serverlessreviewtool.managers;
 
 import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.git.GitImpl;
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchStore;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.mockdata.GitRepositoryInitializer;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.Repository;
@@ -14,7 +15,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -38,6 +38,8 @@ class ReviewContextManagerTests {
 
     private Git git;
     private ReviewContextManager reviewContextManager;
+    private OrphanBranchReviewManager primaryOrphanManager;
+    private OrphanBranchReviewManager secondaryOrphanManager;
 
     @BeforeAll
     static void setUpMockRepositories() {
@@ -52,13 +54,23 @@ class ReviewContextManagerTests {
     void setUp() throws Exception {
         Path gitRoot = tempDir.resolve("test-repositories");
         git = new GitImpl(gitRoot);
-        ReviewNotesManagerFactory factory = repo -> new GitReviewNotesManager(git, repo);
-        RepositoryManager repositoryManager = new RepositoryManager();
-        reviewContextManager = new ReviewContextManager(git, repositoryManager,
-            new ReviewCommentManager(factory), new ReviewChangeSetManager(git, factory));
 
         String primaryUrl = toFileRemoteUrl(PRIMARY_REPOSITORY);
         String secondaryUrl = toFileRemoteUrl(SECONDARY_REPOSITORY);
+
+        OrphanBranchStore primaryStore = new OrphanBranchStore(primaryUrl, gitRoot);
+        OrphanBranchStore secondaryStore = new OrphanBranchStore(secondaryUrl, gitRoot);
+        primaryOrphanManager = new OrphanBranchReviewManager(primaryStore, PRIMARY_REPOSITORY);
+        secondaryOrphanManager = new OrphanBranchReviewManager(secondaryStore, SECONDARY_REPOSITORY);
+
+        ReviewBranchManagerFactory factory = repoName ->
+            repoName.equals(PRIMARY_REPOSITORY) ? primaryOrphanManager : secondaryOrphanManager;
+
+        RepositoryManager repositoryManager = new RepositoryManager();
+        reviewContextManager = new ReviewContextManager(repositoryManager,
+            new ReviewCommentManager(factory),
+            new ReviewChangeSetManager(git, factory),
+            factory);
 
         git.cloneRepository(primaryUrl).get(30, TimeUnit.SECONDS);
         git.cloneRepository(secondaryUrl).get(30, TimeUnit.SECONDS);
@@ -108,21 +120,23 @@ class ReviewContextManagerTests {
     }
 
     private void createMultiRepositoryReview(String reviewId) throws Exception {
-        GitReviewNotesManager notesManager = new GitReviewNotesManager(git, PRIMARY_REPOSITORY);
-        LinkedHashMap<String, List<String>> commitsByRepository = new LinkedHashMap<>();
-        commitsByRepository.put(PRIMARY_REPOSITORY, List.of());
-        commitsByRepository.put(SECONDARY_REPOSITORY, List.of());
-
-        notesManager.createReviewAcrossRepositories(
+        primaryOrphanManager.createReview(
             reviewId,
             AUTHOR,
             TITLE,
             AUTHOR,
             SUMMARY,
             "open",
-            commitsByRepository,
+            List.of(),
             List.of("Reviewer One"),
-            List.of(PRIMARY_REPOSITORY, SECONDARY_REPOSITORY),
+            REVIEW_BRANCH,
+            BASE_BRANCH
+        ).get(30, TimeUnit.SECONDS);
+
+        secondaryOrphanManager.createSecondaryReviewReference(
+            reviewId,
+            AUTHOR,
+            List.of(),
             REVIEW_BRANCH,
             BASE_BRANCH
         ).get(30, TimeUnit.SECONDS);
@@ -133,5 +147,3 @@ class ReviewContextManagerTests {
         return "file:///" + mockRepo.toString().replace("\\", "/");
     }
 }
-
-

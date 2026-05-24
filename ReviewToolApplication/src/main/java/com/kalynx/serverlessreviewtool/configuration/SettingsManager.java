@@ -30,6 +30,7 @@ public class SettingsManager {
     private final AppSettings currentSettings;
     private final Set<Consumer<String>> userNameListeners = new HashSet<>();
     private final Set<Runnable> reviewTabsListeners = new HashSet<>();
+    private final Set<Consumer<String>> indexerUrlListeners = new HashSet<>();
 
     public SettingsManager() {
         this.gson = new GsonBuilder().setPrettyPrinting().create();
@@ -97,6 +98,22 @@ public class SettingsManager {
     public void updateNotificationServiceUrl(String url) {
         currentSettings.setNotificationServiceUrl(url);
         saveSettings();
+    }
+
+    public String getIndexerUrl() {
+        return currentSettings.getIndexerUrl();
+    }
+
+    public void updateIndexerUrl(String url) {
+        currentSettings.setIndexerUrl(url);
+        saveSettings();
+        String safe = url != null ? url : "";
+        indexerUrlListeners.forEach(l -> l.accept(safe));
+    }
+
+    public void addIndexerUrlListener(Consumer<String> listener) {
+        indexerUrlListeners.add(listener);
+        listener.accept(getIndexerUrl());
     }
 
     public void updateWindowDefaults(int width, int height) {

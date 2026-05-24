@@ -1,5 +1,13 @@
 # Communication Design
 
+> **SUPERSEDED** — This document was written when git notes (`refs/notes/*`) was the storage mechanism. Storage has since pivoted to an orphan branch (`kalynx-reviews`), which fires standard `commit.pushed` webhooks natively on all providers. The `POST /events/notify` endpoint, `post-receive` hook design, and client pending queue described below are no longer required.
+>
+> For the current communication design see:
+> - [`Interfaces/SSE-Interface.md`](Interfaces/SSE-Interface.md) — Indexer ↔ Client SSE interface
+> - [`../ReviewToolCentralIndexer/Documentation/Design/Workflows/`](../../ReviewToolCentralIndexer/Documentation/Design/Workflows/) — Webhook processing sequences
+
+---
+
 ## Objectives
 
 The tool must be notified when any of the following events occur in a tracked repository:

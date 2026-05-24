@@ -1,12 +1,12 @@
 package com.kalynx.serverlessreviewtool.managers;
 
 import com.kalynx.serverlessreviewtool.git.GitImpl;
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchStore;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.mockdata.GitRepositoryInitializer;
 import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,8 +16,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -73,7 +71,7 @@ class CommitSnapshotPreservationTests {
     private Path testRepoPath;
     private GitImpl git;
     private ReviewChangeSetManager changeSetManager;
-    private GitReviewNotesManager notesManager;
+    private OrphanBranchReviewManager orphanManager;
 
     @BeforeAll
     static void initMockRepositories() {
@@ -88,20 +86,21 @@ class CommitSnapshotPreservationTests {
     void setUp() throws Exception {
         testRepoPath = tempDir.resolve("test-repositories");
         git = new GitImpl(testRepoPath);
-        ReviewNotesManagerFactory factory = repo -> new GitReviewNotesManager(git, repo);
+
+        Path orphanRemote = tempDir.resolve("orphan-remote.git");
+        runGitCommand(tempDir, "git", "init", "--bare", orphanRemote.toString());
+        String orphanUrl = "file:///" + orphanRemote.toString().replace("\\", "/");
+        Path storeBase = tempDir.resolve("orphan-store");
+        Files.createDirectories(storeBase);
+        OrphanBranchStore orphanStore = new OrphanBranchStore(orphanUrl, storeBase);
+        orphanManager = new OrphanBranchReviewManager(orphanStore, REPO);
+
+        ReviewBranchManagerFactory factory = _ -> orphanManager;
         changeSetManager = new ReviewChangeSetManager(git, factory);
-        notesManager = new GitReviewNotesManager(git, REPO);
 
         Path remoteUrl = GitRepositoryInitializer.getBasePath().resolve(REPO);
         git.cloneRepository("file:///" + remoteUrl.toString().replace("\\", "/"))
             .get(30, TimeUnit.SECONDS);
-
-        deleteAllReviewNotes();
-    }
-
-    @AfterEach
-    void tearDown() throws Exception {
-        deleteAllReviewNotes();
     }
 
     @Test
@@ -133,7 +132,7 @@ class CommitSnapshotPreservationTests {
             .get(10, TimeUnit.SECONDS);
 
         assertNotNull(storedCommits);
-        assertFalse(storedCommits.isEmpty(), "Stored commits must be written to git notes after capture");
+        assertFalse(storedCommits.isEmpty(), "Stored commits must be written to orphan branch after capture");
     }
 
     @Test
@@ -295,34 +294,36 @@ class CommitSnapshotPreservationTests {
     }
 
     private void createTestReview(List<String> repositories) throws Exception {
-        LinkedHashMap<String, List<String>> commitsByRepo = new LinkedHashMap<>();
-        for (String repoName : repositories) {
-            List<String> commits = git.listCommits(repoName, BASE_BRANCH + ".." + REVIEW_BRANCH, 100)
-                .get(10, TimeUnit.SECONDS)
-                .stream()
-                .map(row -> row.split("\\|")[0])
-                .filter(h -> !h.isBlank())
-                .toList();
-            commitsByRepo.put(repoName, commits);
-        }
-
-        notesManager.createReviewAcrossRepositories(
-                CommitSnapshotPreservationTests.REVIEW_ID, AUTHOR, "Attempt 3 at fixing preservation of code review commits",
-            AUTHOR, "Test review for snapshot preservation validation",
-            "OPEN", commitsByRepo, List.of("reviewer.one"), repositories, REVIEW_BRANCH, BASE_BRANCH
+        List<String> commits = git.listCommits(REPO, BASE_BRANCH + ".." + REVIEW_BRANCH, 100)
+            .get(10, TimeUnit.SECONDS)
+            .stream()
+            .map(row -> row.split("\\|")[0])
+            .filter(h -> !h.isBlank())
+            .toList();
+        orphanManager.createReview(
+            REVIEW_ID, AUTHOR,
+            "Attempt 3 at fixing preservation of code review commits",
+            AUTHOR,
+            "Test review for snapshot preservation validation",
+            "OPEN",
+            commits,
+            List.of("reviewer.one"),
+            REVIEW_BRANCH,
+            BASE_BRANCH
         ).get(30, TimeUnit.SECONDS);
     }
 
     private void createTestReviewWithEmptyCommits(List<String> repositories) throws Exception {
-        LinkedHashMap<String, List<String>> commitsByRepo = new LinkedHashMap<>();
-        for (String repoName : repositories) {
-            commitsByRepo.put(repoName, List.of());
-        }
-
-        notesManager.createReviewAcrossRepositories(
-                CommitSnapshotPreservationTests.REVIEW_ID, AUTHOR, "Attempt 3 at fixing preservation of code review commits",
-            AUTHOR, "Test review with empty initial commits",
-            "OPEN", commitsByRepo, List.of("reviewer.one"), repositories, REVIEW_BRANCH, BASE_BRANCH
+        orphanManager.createReview(
+            REVIEW_ID, AUTHOR,
+            "Attempt 3 at fixing preservation of code review commits",
+            AUTHOR,
+            "Test review with empty initial commits",
+            "OPEN",
+            List.of(),
+            List.of("reviewer.one"),
+            REVIEW_BRANCH,
+            BASE_BRANCH
         ).get(30, TimeUnit.SECONDS);
     }
 
@@ -438,51 +439,4 @@ class CommitSnapshotPreservationTests {
                 + String.join(" ", command));
         }
     }
-
-    private void deleteAllReviewNotes() throws IOException {
-        Path clonedRepo = testRepoPath.resolve(REPO);
-        if (Files.exists(clonedRepo)) {
-            deleteNotesDirectory(clonedRepo);
-        }
-
-        Path remoteRepo = GitRepositoryInitializer.getBasePath().resolve(REPO);
-        if (Files.exists(remoteRepo)) {
-            deleteNotesDirectory(remoteRepo);
-        }
-
-        Path gitReviewsBase = Path.of(System.getProperty("java.io.tmpdir")).resolve("git-reviews");
-        if (Files.exists(gitReviewsBase)) {
-            try (var stream = Files.walk(gitReviewsBase)) {
-                stream.sorted(Comparator.reverseOrder()).forEach(p -> {
-                    try {
-                        Files.delete(p);
-                    } catch (IOException ignored) {
-                    }
-                });
-            }
-        }
-    }
-
-    private void deleteNotesDirectory(Path repoPath) throws IOException {
-        Path notesDir = repoPath.resolve(".git/refs/notes/reviews");
-        if (Files.exists(notesDir)) {
-            try (var stream = Files.walk(notesDir)) {
-                stream.sorted(Comparator.reverseOrder()).forEach(p -> {
-                    try {
-                        Files.delete(p);
-                    } catch (IOException ignored) {
-                    }
-                });
-            }
-        }
-    }
 }
-
-
-
-
-
-
-
-
-

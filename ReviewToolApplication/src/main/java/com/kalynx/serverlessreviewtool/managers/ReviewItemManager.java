@@ -5,26 +5,18 @@ import com.kalynx.serverlessreviewtool.git.ReviewItemLoader;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.plugin.RepositoryDescriptor;
 import com.kalynx.serverlessreviewtool.plugin.ReviewListUpdate;
+import com.kalynx.serverlessreviewtool.plugin.ReviewUpdateType;
 import com.kalynx.swingtheme.theme.LoadingStateManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Maintains review item state and emits incremental updates to listeners.
@@ -145,7 +137,8 @@ public class ReviewItemManager {
 
             Map<String, ReviewItem> refreshedRepositorySnapshot = new HashMap<>();
             CompletableFuture<Void> refreshFuture = git.ensureCloned(repositoryName, descriptor.location())
-                .thenCompose(ignored -> reviewItemLoader.loadReviewsFromRepositoryLazy(repositoryName, review ->
+                .thenCompose(ignored -> reviewItemLoader.loadReviewsFromRepositoryLazy(
+                    repositoryName, descriptor.location(), review ->
                     refreshedRepositorySnapshot.put(review.getReviewId(), review)))
                 .thenRun(() -> replaceRepositorySnapshot(repositoryName, refreshedRepositorySnapshot))
                 .exceptionally(ex -> {
@@ -167,45 +160,102 @@ public class ReviewItemManager {
     }
 
     /**
-     * Applies plugin notification updates by refreshing only affected repositories.
+     * Applies plugin notification updates.
+     *
+     * <p>When an update carries both a {@code reviewId} and a {@code repositoryUrl} a targeted
+     * single-review fetch is performed via {@link ReviewItemLoader#loadSingleReviewItem} so only
+     * the affected blob is retrieved from the orphan branch. When either field is absent the
+     * affected repository is refreshed in full as a fallback.
      *
      * @param updates plugin review list updates
      */
     public void applyNotificationUpdates(ReviewListUpdate[] updates) {
-        if (updates == null || updates.length == 0) {
-            CompletableFuture.completedFuture(null);
+        if (updates == null) {
             return;
         }
 
-        List<String> affectedRepositories = Stream.of(updates)
-            .filter(Objects::nonNull)
-            .flatMap(update -> {
-                Stream<String> primary = update.primaryRepository() == null
-                    ? Stream.empty()
-                    : Stream.of(update.primaryRepository());
-                Stream<String> repositories = update.repositories() == null
-                    ? Stream.empty()
-                    : update.repositories().stream();
-                return Stream.concat(primary, repositories);
-            })
-            .filter(repo -> repo != null && !repo.isBlank())
-            .distinct()
-            .toList();
 
-        if (affectedRepositories.isEmpty()) {
-            refresh();
-            return;
+        Arrays.stream(updates).parallel().forEach( update -> {
+            if (update == null) return;
+            LOGGER.debug("Received notification update: {}", update);
+            if (update.reviewId() != null && update.repositoryUrl() != null) {
+                // Targeted path: fetch only the changed review from the orphan branch.
+                fetchSingleReview(update.reviewId(), update.repositoryUrl(),
+                        update.primaryRepository(), update.updateType())
+                        .exceptionally(ex -> {
+                            LOGGER.warn("Targeted fetch failed for review '{}': {}", update.reviewId(), ex.getMessage());
+                            return null;
+                        });
+            } else {
+                // Fallback: refresh the whole repository (no repositoryUrl in payload).
+                List<String> repos = new ArrayList<>();
+                if (update.primaryRepository() != null) repos.add(update.primaryRepository());
+                if (update.repositories() != null) repos.addAll(update.repositories());
+
+                repos.stream()
+                        .filter(r -> r != null && !r.isBlank())
+                        .distinct()
+                        .forEach(repo -> refreshRepository(repo).exceptionally(ex -> {
+                            LOGGER.warn("Repository refresh failed for '{}': {}", repo, ex.getMessage());
+                            return null;
+                        }));
+
+                if (repos.isEmpty()) {
+                    refresh();
+                }
+            }
+        });
+    }
+
+    /**
+     * Fetches or removes a single review in response to a targeted notification event.
+     */
+    private CompletableFuture<Void> fetchSingleReview(String reviewId,
+                                                        String remoteUrl,
+                                                        String repositoryName,
+                                                        ReviewUpdateType type) {
+        if (type == ReviewUpdateType.DELETED) {
+            removeSingleReviewFromSnapshot(repositoryName, reviewId);
+            return CompletableFuture.completedFuture(null);
         }
+        if (repositoryName == null) {
+            LOGGER.debug("Skipping targeted fetch for review '{}' — no primaryRepository", reviewId);
+            return CompletableFuture.completedFuture(null);
+        }
+        return reviewItemLoader.loadSingleReviewItem(repositoryName, remoteUrl, reviewId)
+            .thenAccept(item -> {
+                if (item != null) {
+                    upsertReview(repositoryName, item);
+                }
+            });
+    }
 
-        List<CompletableFuture<Void>> futures = affectedRepositories.stream()
-            .map(repositoryName -> refreshRepository(repositoryName)
-                .exceptionally(error -> {
-                    LOGGER.warn("Skipping repository '{}' during notification refresh due to error: {}",
-                        repositoryName, error.getMessage());
-                    return null;
-                }))
-            .toList();
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+    /** Inserts or replaces a single review item in the snapshot and notifies listeners. */
+    private void upsertReview(String repositoryName, ReviewItem item) {
+        List<ReviewItem> snapshot;
+        synchronized (lock) {
+            repositoryReviewIndex
+                .computeIfAbsent(repositoryName, k -> new HashMap<>())
+                .put(item.getReviewId(), item);
+            recomputeMergedReview(item.getReviewId());
+            snapshot = rebuildSnapshot();
+        }
+        notifyListeners(snapshot);
+    }
+
+    /** Removes a single review from one repository's snapshot and notifies listeners. */
+    private void removeSingleReviewFromSnapshot(String repositoryName, String reviewId) {
+        List<ReviewItem> snapshot;
+        synchronized (lock) {
+            Map<String, ReviewItem> repoMap = repositoryReviewIndex.get(repositoryName);
+            if (repoMap == null || !repoMap.containsKey(reviewId)) {
+                return;
+            }
+            repoMap.remove(reviewId);
+            recomputeMergedReview(reviewId);
+            snapshot = rebuildSnapshot();
+        }
+        notifyListeners(snapshot);
     }
 
     /**

@@ -1,7 +1,8 @@
 package com.kalynx.serverlessreviewtool.ui.review;
 
 import com.kalynx.serverlessreviewtool.git.Git;
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
@@ -35,6 +36,7 @@ public class EditReviewDialog extends ReviewFormDialog {
 
     private final ReviewContext originalContext;
     private final ReviewContextManager reviewContextManager;
+    private final ReviewBranchManagerFactory branchManagerFactory;
     private final LoadingStateManager loadingStateManager;
     private Runnable onReviewUpdated;
 
@@ -54,10 +56,12 @@ public class EditReviewDialog extends ReviewFormDialog {
                             ReviewFormModels models,
                             RepositoryManager repositoryManager,
                             ReviewContextManager reviewContextManager,
-                            Git git) {
+                            Git git,
+                            ReviewBranchManagerFactory branchManagerFactory) {
         super(parent, "Edit Code Review", models, repositoryManager, git);
         this.originalContext = context;
         this.reviewContextManager = reviewContextManager;
+        this.branchManagerFactory = branchManagerFactory;
         this.loadingStateManager = LoadingStateManager.getInstance();
 
         this.lastSavedReviewers = new ArrayList<>(context.reviewers);
@@ -77,8 +81,8 @@ public class EditReviewDialog extends ReviewFormDialog {
             return;
         }
 
-        GitReviewNotesManager notesManager = new GitReviewNotesManager(git, primaryRepo.getName());
-        notesManager.readAllMetadata(context.reviewId)
+        OrphanBranchReviewManager orphanManager = branchManagerFactory.create(primaryRepo.getName());
+        orphanManager.readAllMetadata(context.reviewId)
             .thenAccept(metadata -> {
                 String branch = getLatestValue(metadata.branches());
                 String baseBranch = getLatestValue(metadata.baseBranches());

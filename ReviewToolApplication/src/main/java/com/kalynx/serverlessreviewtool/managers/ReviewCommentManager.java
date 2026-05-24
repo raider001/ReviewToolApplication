@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.ReviewComment;
 import com.kalynx.serverlessreviewtool.models.review.StreamEntry;
 import org.slf4j.Logger;
@@ -14,22 +14,22 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
- * Manages loading and saving review comments to and from git notes.
+ * Manages loading and saving review comments via the orphan branch store.
  * Handles all comment-level CRUD operations for a review, isolated from review context state.
  */
 public class ReviewCommentManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ReviewCommentManager.class);
 
-    private final ReviewNotesManagerFactory notesManagerFactory;
+    private final ReviewBranchManagerFactory branchManagerFactory;
 
     /**
-     * Constructs a ReviewCommentManager with the given notes manager factory.
+     * Constructs a ReviewCommentManager with the given branch manager factory.
      *
-     * @param notesManagerFactory factory for creating per-repository git notes managers
+     * @param branchManagerFactory factory for creating per-repository orphan branch managers
      */
-    public ReviewCommentManager(ReviewNotesManagerFactory notesManagerFactory) {
-        this.notesManagerFactory = notesManagerFactory;
+    public ReviewCommentManager(ReviewBranchManagerFactory branchManagerFactory) {
+        this.branchManagerFactory = branchManagerFactory;
     }
 
     /**
@@ -41,7 +41,7 @@ public class ReviewCommentManager {
      */
     public CompletableFuture<List<ReviewComment>> loadCommentsFromKnownRepository(
             String reviewId, String primaryRepoName) {
-        GitReviewNotesManager notesManager = notesManagerFactory.create(primaryRepoName);
+        OrphanBranchReviewManager notesManager = branchManagerFactory.create(primaryRepoName);
         long listCommentsStart = System.nanoTime();
 
         return notesManager.listCommentIds(reviewId)
@@ -94,7 +94,7 @@ public class ReviewCommentManager {
 
         LOGGER.debug("Saving comment for review: {} (id: {})", reviewId, comment.getId());
 
-        GitReviewNotesManager notesManager = notesManagerFactory.create(repositoryName);
+        OrphanBranchReviewManager notesManager = branchManagerFactory.create(repositoryName);
         String commentType = comment.needsResolution() ? "review" : "comment";
 
         CompletableFuture<Void> metadataFuture = notesManager.writeCommentMetadata(
@@ -142,7 +142,7 @@ public class ReviewCommentManager {
 
         LOGGER.debug("Resolving comment for review: {} (id: {})", reviewId, comment.getId());
 
-        GitReviewNotesManager notesManager = notesManagerFactory.create(repositoryName);
+        OrphanBranchReviewManager notesManager = branchManagerFactory.create(repositoryName);
 
         return notesManager.writeCommentStatus(
             reviewId, comment.getId(), comment.getAuthor(),
@@ -183,30 +183,30 @@ public class ReviewCommentManager {
     }
 
     private CompletableFuture<ReviewComment> loadSingleComment(
-            GitReviewNotesManager notesManager, String reviewId, String commentId) {
+            OrphanBranchReviewManager notesManager, String reviewId, String commentId) {
 
-        CompletableFuture<List<StreamEntry<GitReviewNotesManager.CommentMetadata>>> metadataFuture =
+        CompletableFuture<List<StreamEntry<OrphanBranchReviewManager.CommentMetadata>>> metadataFuture =
             notesManager.readCommentMetadata(reviewId, commentId);
-        CompletableFuture<List<StreamEntry<GitReviewNotesManager.CommentTextData>>> textFuture =
+        CompletableFuture<List<StreamEntry<OrphanBranchReviewManager.CommentTextData>>> textFuture =
             notesManager.readCommentText(reviewId, commentId);
-        CompletableFuture<List<StreamEntry<GitReviewNotesManager.CommentStatusData>>> statusFuture =
+        CompletableFuture<List<StreamEntry<OrphanBranchReviewManager.CommentStatusData>>> statusFuture =
             notesManager.readCommentStatus(reviewId, commentId);
 
         return CompletableFuture.allOf(metadataFuture, textFuture, statusFuture)
             .thenApply(ignored -> {
-                List<StreamEntry<GitReviewNotesManager.CommentMetadata>> metadata = metadataFuture.join();
-                List<StreamEntry<GitReviewNotesManager.CommentTextData>> textEntries = textFuture.join();
-                List<StreamEntry<GitReviewNotesManager.CommentStatusData>> statusEntries = statusFuture.join();
+                List<StreamEntry<OrphanBranchReviewManager.CommentMetadata>> metadata = metadataFuture.join();
+                List<StreamEntry<OrphanBranchReviewManager.CommentTextData>> textEntries = textFuture.join();
+                List<StreamEntry<OrphanBranchReviewManager.CommentStatusData>> statusEntries = statusFuture.join();
 
                 if (metadata.isEmpty() || textEntries.isEmpty()) {
                     return null;
                 }
 
-                StreamEntry<GitReviewNotesManager.CommentMetadata> latestMetadata = metadata.getLast();
-                StreamEntry<GitReviewNotesManager.CommentTextData> firstText = textEntries.getFirst();
+                StreamEntry<OrphanBranchReviewManager.CommentMetadata> latestMetadata = metadata.getLast();
+                StreamEntry<OrphanBranchReviewManager.CommentTextData> firstText = textEntries.getFirst();
 
-                GitReviewNotesManager.CommentMetadata metaData = latestMetadata.data();
-                GitReviewNotesManager.CommentTextData textData = firstText.data();
+                OrphanBranchReviewManager.CommentMetadata metaData = latestMetadata.data();
+                OrphanBranchReviewManager.CommentTextData textData = firstText.data();
 
                 ReviewComment comment = new ReviewComment(
                     commentId,
@@ -220,8 +220,8 @@ public class ReviewCommentManager {
                 );
 
                 if (!statusEntries.isEmpty()) {
-                    StreamEntry<GitReviewNotesManager.CommentStatusData> latestStatus = statusEntries.getLast();
-                    GitReviewNotesManager.CommentStatusData statusData = latestStatus.data();
+                    StreamEntry<OrphanBranchReviewManager.CommentStatusData> latestStatus = statusEntries.getLast();
+                    OrphanBranchReviewManager.CommentStatusData statusData = latestStatus.data();
 
                     if (statusData.needsResolution() != null) {
                         comment.setNeedsResolution(statusData.needsResolution());

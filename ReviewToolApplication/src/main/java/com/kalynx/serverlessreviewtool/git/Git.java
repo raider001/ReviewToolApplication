@@ -4,20 +4,17 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Git provides asynchronous operations for managing review notes stored in git repositories.
- *
- * <p>All review data is persisted as NDJSON streams under {@code refs/notes/reviews/}
- * following the structure defined in the data model.
+ * Git provides asynchronous operations for managing local repository clones.
  *
  * <p>All operations are non-blocking and return {@link CompletableFuture} for composability.
  */
 public interface Git {
 
     /**
-     * Initializes a local repository for notes-only operations.
+     * Clones a remote repository locally, or reconnects it if the directory already exists.
      *
-     * <p>Creates the directory if needed, runs {@code git init}, configures the remote,
-     * and fetches all review notes refs using union merge strategy.
+     * <p>Creates the local directory if needed, runs {@code git clone}, configures the remote,
+     * and fetches all branches.
      *
      * @param remoteUrl git remote URL
      * @return future that completes when initialization finishes
@@ -56,16 +53,6 @@ public interface Git {
     CompletableFuture<Void> fetchBranches(String repository, List<String> branches);
 
     CompletableFuture<Void> pull(String repository);
-
-    CompletableFuture<Void> appendToNotes(String repository, String note, String data);
-
-    /**
-     *
-     * @param repository The repository the notes are in.
-     * @param notes The notes to push.
-     * @return future that completes when push finishes
-     */
-    CompletableFuture<Void> pushNotes(String repository, List<String> notes);
 
     /**
      * List all branches in the repository.
@@ -115,6 +102,18 @@ public interface Git {
      * @return future containing list of commit info strings
      */
     CompletableFuture<List<String>> listCommits(String repository, String ref, int maxCount);
+
+    /**
+     * List commits for a branch directly from a remote repository without requiring a local clone.
+     * Creates a temporary bare clone, reads the log, then removes the clone.
+     * Returns commits in format: "hash|author|date|message", newest first.
+     *
+     * @param remoteUrl remote repository URL
+     * @param ref       branch name (e.g., "main", "feature/my-branch")
+     * @param maxCount  maximum number of commits to return
+     * @return future containing list of commit info strings
+     */
+    CompletableFuture<List<String>> listCommitsRemote(String remoteUrl, String ref, int maxCount);
 
     /**
      * List files changed between two commits.

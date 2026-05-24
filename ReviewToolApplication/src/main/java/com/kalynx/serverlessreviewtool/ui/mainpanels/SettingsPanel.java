@@ -5,6 +5,7 @@ import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.swingtheme.themedcomponents.ThemedScrollPane;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.settingspanel.CacheManagementPanel;
+import com.kalynx.serverlessreviewtool.ui.mainpanels.settingspanel.IndexerServiceSettingsPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.settingspanel.NotificationServiceSettingsPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.settingspanel.TabConfigSettingsPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.settingspanel.UserSettingsPanel;
@@ -33,20 +34,21 @@ public class SettingsPanel extends ThemedPanel {
 
     private JPanel createContentPanel() {
         ThemedPanel contentPanel = new ThemedPanel();
-        contentPanel.setLayout(new MigLayout("", "[grow][grow]", "[][][][]"));
+        contentPanel.setLayout(new MigLayout("", "[grow][grow]", "[][][][][]"));
 
-        // Create settings sections with DI
         UserSettingsPanel userSettings = new UserSettingsPanel(settingsManager, pluginManager);
         WindowSettingsPanel windowSettings = new WindowSettingsPanel(settingsManager);
         NotificationServiceSettingsPanel notificationService = new NotificationServiceSettingsPanel(settingsManager);
+        IndexerServiceSettingsPanel indexerService = new IndexerServiceSettingsPanel(settingsManager);
         CacheManagementPanel cacheManagement = new CacheManagementPanel();
         TabConfigSettingsPanel tabConfig = new TabConfigSettingsPanel(settingsManager);
 
         contentPanel.add(userSettings,       "cell 0 0 2 1, growx");
         contentPanel.add(windowSettings,     "cell 0 1, growx");
         contentPanel.add(notificationService,"cell 1 1, growx");
-        contentPanel.add(tabConfig,          "cell 0 2 2 1, growx");
-        contentPanel.add(cacheManagement,    "cell 0 3 2 1, growx");
+        contentPanel.add(indexerService,     "cell 0 2 2 1, growx");
+        contentPanel.add(tabConfig,          "cell 0 3 2 1, growx");
+        contentPanel.add(cacheManagement,    "cell 0 4 2 1, growx");
 
         return contentPanel;
     }

@@ -1,7 +1,8 @@
 package com.kalynx.serverlessreviewtool.ui.review;
 
 import com.kalynx.serverlessreviewtool.git.Git;
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
 import com.kalynx.swingtheme.themedcomponents.ThemedOptionPane;
@@ -13,8 +14,8 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.awt.Component;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -25,17 +26,22 @@ public class CreateReviewDialog extends ReviewFormDialog {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CreateReviewDialog.class);
 
+    private final ReviewBranchManagerFactory branchManagerFactory;
+
     /**
-     * @param parent            parent component for dialog placement
-     * @param models            shared form models
-     * @param repositoryManager repository lookup for URL resolution
-     * @param git               git client used for clone/fetch operations
+     * @param parent               parent component for dialog placement
+     * @param models               shared form models
+     * @param repositoryManager    repository lookup for URL resolution
+     * @param git                  git client used for clone/fetch operations
+     * @param branchManagerFactory factory for creating orphan branch managers
      */
     public CreateReviewDialog(Component parent,
                               ReviewFormModels models,
                               RepositoryManager repositoryManager,
-                              Git git) {
+                              Git git,
+                              ReviewBranchManagerFactory branchManagerFactory) {
         super(parent, "Create Code Review", models, repositoryManager, git);
+        this.branchManagerFactory = branchManagerFactory;
         models.clear();
     }
 
@@ -90,7 +96,6 @@ public class CreateReviewDialog extends ReviewFormDialog {
                                List<String> reviewers) {
 
         LoadingStateManager.getInstance().startLoading("create-review");
-        GitReviewNotesManager notesManager = new GitReviewNotesManager(git, primaryRepository);
 
         LOGGER.info("Creating review - Primary Repository: {}, All Repositories: {}, Branch: {}, Base: {}",
             primaryRepository, allRepositories, branch, baseBranch);
@@ -104,10 +109,22 @@ public class CreateReviewDialog extends ReviewFormDialog {
             .toList();
 
         CompletableFuture.allOf(cloneFutures.toArray(new CompletableFuture[0]))
-            .thenCompose(_ -> notesManager.createReviewAcrossRepositories(
-                reviewId, editor, title, author, summary, "open",
-                Map.of(), reviewers, allRepositories, branch, baseBranch
-            ))
+            .thenCompose(_ -> {
+                OrphanBranchReviewManager primaryManager = branchManagerFactory.create(primaryRepository);
+                CompletableFuture<Void> primaryFuture = primaryManager.createReview(
+                    reviewId, editor, title, author, summary, "open",
+                    List.of(), reviewers, branch, baseBranch
+                );
+                List<CompletableFuture<Void>> secondaryFutures = allRepositories.stream()
+                    .skip(1)
+                    .map(repoName -> branchManagerFactory.create(repoName)
+                        .createSecondaryReviewReference(reviewId, editor, List.of(), branch, baseBranch))
+                    .toList();
+                List<CompletableFuture<Void>> allFutures = new ArrayList<>();
+                allFutures.add(primaryFuture);
+                allFutures.addAll(secondaryFutures);
+                return CompletableFuture.allOf(allFutures.toArray(new CompletableFuture[0]));
+            })
             .thenAccept(_ -> SwingUtilities.invokeLater(() -> {
                 LoadingStateManager.getInstance().stopLoading("create-review");
                 confirmed = true;

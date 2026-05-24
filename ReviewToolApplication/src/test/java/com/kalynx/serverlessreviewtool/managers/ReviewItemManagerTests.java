@@ -206,7 +206,7 @@ class ReviewItemManagerTests {
 
         ReviewListUpdate update = new ReviewListUpdate(
             UUID.randomUUID().toString(), Instant.now(), ReviewUpdateType.UPDATED,
-            "r1", REPO_A, List.of(REPO_A));
+            "r1", REPO_A, List.of(REPO_A), null, null);
 
         manager.applyNotificationUpdates(new ReviewListUpdate[]{update});
         Thread.sleep(300);
@@ -225,7 +225,7 @@ class ReviewItemManagerTests {
 
         ReviewListUpdate update = new ReviewListUpdate(
             UUID.randomUUID().toString(), Instant.now(), ReviewUpdateType.UPDATED,
-            "r1", null, null);
+            "r1", null, null, null, null);
 
         manager.applyNotificationUpdates(new ReviewListUpdate[]{update});
         Thread.sleep(300);
@@ -302,9 +302,9 @@ class ReviewItemManagerTests {
         when(git.ensureCloned(eq(repoName), eq(ReviewItemManagerTests.REPO_URL)))
             .thenReturn(CompletableFuture.completedFuture(null));
 
-        when(loader.loadReviewsFromRepositoryLazy(eq(repoName), any(Consumer.class)))
+        when(loader.loadReviewsFromRepositoryLazy(eq(repoName), eq(REPO_URL), any(Consumer.class)))
             .thenAnswer(invocation -> {
-                Consumer<ReviewItem> callback = invocation.getArgument(1);
+                Consumer<ReviewItem> callback = invocation.getArgument(2);
                 items.forEach(callback);
                 return CompletableFuture.completedFuture(null);
             });

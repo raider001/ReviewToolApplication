@@ -75,10 +75,10 @@ public class SourcePanel extends ThemedPanel {
 
         availableBranchesModel.addChangeListener(branches -> SwingUtilities.invokeLater(() -> {
             if (branches != null && !branches.isEmpty()) {
-                if (branchNameField.getSelectedItem() == null) {
+                if (branchNameField.getSelectedItem() == null && branchNameField.getItemCount() > 0) {
                     branchNameField.setSelectedIndex(0);
                 }
-                if (reviewAgainstBranchCombo.getSelectedItem() == null) {
+                if (reviewAgainstBranchCombo.getSelectedItem() == null && reviewAgainstBranchCombo.getItemCount() > 0) {
                     reviewAgainstBranchCombo.setSelectedIndex(0);
                 }
             }

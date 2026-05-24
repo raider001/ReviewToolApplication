@@ -1,8 +1,8 @@
 package com.kalynx.serverlessreviewtool.managers;
 
 import com.kalynx.serverlessreviewtool.git.Git;
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.FileChangeType;
 import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
@@ -35,14 +35,14 @@ class ReviewChangeSetManagerTests {
     private static final String BASE_BRANCH = "main";
 
     private Git git;
-    private GitReviewNotesManager notesManager;
+    private OrphanBranchReviewManager notesManager;
     private ReviewChangeSetManager changeSetManager;
 
     @BeforeEach
     void setUp() {
         git = mock(Git.class);
-        notesManager = mock(GitReviewNotesManager.class);
-        ReviewNotesManagerFactory factory = _ -> notesManager;
+        notesManager = mock(OrphanBranchReviewManager.class);
+        ReviewBranchManagerFactory factory = _ -> notesManager;
         changeSetManager = new ReviewChangeSetManager(git, factory);
 
         when(git.getDefaultBranch(anyString())).thenReturn(CompletableFuture.completedFuture("main"));

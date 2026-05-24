@@ -3,6 +3,7 @@ import com.kalynx.lwdi.DependencyInjector;
 import com.kalynx.serverlessreviewtool.configuration.AppSettings;
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.git.*;
+import com.kalynx.serverlessreviewtool.indexer.IndexerEventSource;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewChangeSetManager;
@@ -28,6 +29,8 @@ import org.slf4j.LoggerFactory;
 import javax.swing.*;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -40,6 +43,7 @@ public class Main {
 
     private static final RepositoryManager REPOSITORY_MANAGER;
     private static final SettingsManager SETTINGS_MANAGER;
+    private static final IndexerEventSource INDEXER_EVENT_SOURCE;
     private static final ReviewItemManager REVIEW_ITEM_MANAGER;
     private static final ReviewContextManager REVIEW_CONTEXT_MANAGER;
     private static final UserManager USER_MANAGER;
@@ -52,10 +56,25 @@ public class Main {
         try {
             GitImpl gitImpl = new GitImpl(gitLocalPath);
             DI.add(Git.class, gitImpl);
-            DI.add(ReviewNotesManagerFactory.class, repo -> new GitReviewNotesManager(gitImpl, repo));
+            Map<String, OrphanBranchStore> storeRegistry = new ConcurrentHashMap<>();
+            OrphanBranchReviewManagerFactory managerFactory = (repoName, remoteUrl) -> {
+                OrphanBranchStore store = storeRegistry.computeIfAbsent(remoteUrl,
+                        url -> new OrphanBranchStore(url, gitLocalPath));
+                return new OrphanBranchReviewManager(store, repoName);
+            };
+            DI.add(OrphanBranchReviewManagerFactory.class, managerFactory);
             DI.inject(RepositoryLoader.class);
             REPOSITORY_MANAGER = DI.inject(RepositoryManager.class);
+            // Single-arg factory registered after RepositoryManager is available so URL lookup works.
+            final RepositoryManager repoMgr = REPOSITORY_MANAGER;
+            ReviewBranchManagerFactory branchManagerFactory = repoName -> {
+                com.kalynx.serverlessreviewtool.models.Repository repo = repoMgr.getRepositoryByName(repoName);
+                String url = (repo != null && repo.getUrl() != null) ? repo.getUrl() : "";
+                return managerFactory.create(repoName, url);
+            };
+            DI.add(ReviewBranchManagerFactory.class, branchManagerFactory);
             SETTINGS_MANAGER = DI.inject(SettingsManager.class);
+            INDEXER_EVENT_SOURCE = new IndexerEventSource(SETTINGS_MANAGER);
             DI.inject(ReviewItemLoader.class);
             REVIEW_ITEM_MANAGER = DI.inject(ReviewItemManager.class);
             DI.inject(ReviewCommentManager.class);
@@ -102,8 +121,13 @@ public class Main {
 
         PLUGIN_MANAGER.addListenerToNotificationRepositoryUpdates(Main::onNotificationRepositoriesUpdated);
 
+        INDEXER_EVENT_SOURCE.start(REVIEW_ITEM_MANAGER::applyNotificationUpdates);
+
         PLUGIN_MANAGER.initialize();
-        Runtime.getRuntime().addShutdownHook(new Thread(PLUGIN_MANAGER::shutdown));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            INDEXER_EVENT_SOURCE.stop();
+            PLUGIN_MANAGER.shutdown();
+        }));
 
         if (SETTINGS_MANAGER.isLoggedIn() && !isKnownUser(SETTINGS_MANAGER.getLoggedInUserName())) {
             SETTINGS_MANAGER.logoutUser();
@@ -143,9 +167,28 @@ public class Main {
 
     private static void setupReviewFormModelUpdaters() {
         REPOSITORY_MANAGER.addListener(repositories -> REVIEW_FORM_MODELS.availableRepositories.setValue(repositories.stream().map(Repository::getName).toList()));
-        REPOSITORY_MANAGER.addListener(repositories -> REVIEW_FORM_MODELS.availableBranches.setValue(repositories.stream().flatMap(r -> r.getBranches().stream()).toList()));
+
+        @SuppressWarnings("unchecked")
+        List<String>[] indexerBranchHolder = new List[]{List.of()};
+        REPOSITORY_MANAGER.addListener(repositories -> {
+            List<String> repoBranches = repositories.stream().flatMap(r -> r.getBranches().stream()).toList();
+            REVIEW_FORM_MODELS.availableBranches.setValue(mergeBranches(repoBranches, indexerBranchHolder[0]));
+        });
+        INDEXER_EVENT_SOURCE.addBranchListener(branches -> {
+            indexerBranchHolder[0] = branches;
+            List<String> repoBranches = REPOSITORY_MANAGER.getRepositories().stream()
+                .flatMap(r -> r.getBranches().stream()).toList();
+            REVIEW_FORM_MODELS.availableBranches.setValue(mergeBranches(repoBranches, branches));
+        });
+
         SETTINGS_MANAGER.addUserNameListener(REVIEW_FORM_MODELS.author::setValue);
         REVIEW_FORM_MODELS.author.setValue(SETTINGS_MANAGER.getCurrentUserName());
+    }
+
+    private static List<String> mergeBranches(List<String> repoBranches, List<String> indexerBranches) {
+        return java.util.stream.Stream.concat(repoBranches.stream(), indexerBranches.stream())
+            .distinct()
+            .toList();
     }
 
     private static void onNotificationRepositoriesUpdated(RepositoryListUpdate[] updates) {

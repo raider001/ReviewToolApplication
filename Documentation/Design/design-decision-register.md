@@ -207,49 +207,97 @@ The tool will support plugging in third-party services for user validation and b
 ## External Indexer and Notification Plugin for Scale
 
 ### Decision
-Keep Git notes as the authoritative review store, and introduce an external indexer/custom plugin service for large-scale discovery, query, and change notification workflows.
+The Central Indexer is the permanent, queryable review index and the sole source of live change notifications for connected clients. Git (notes or orphan branch — see separate proposal) remains the authoritative store for full review detail. The client never polls git for the review list; it receives all review list changes from the indexer via SSE.
 
 ### Why
-At higher review counts, full Git-note scanning and repeated metadata hydration become the primary bottleneck. The indexer solves this by:
+At higher review counts, full git scanning on every client becomes the primary bottleneck. More fundamentally, with the indexer acting as the webhook receiver for all provider events, it is already the first component to know when anything changes. The client has no reason to re-derive that information itself.
 
-- maintaining a materialized review routing/summary index (`reviewId` to primary repository and summary metadata)
-- serving paged/filterable queries without repository-wide scans
-- emitting changed review IDs so clients refresh incrementally
-- reducing plugin-side work to targeted hydration of only relevant reviews
+The indexer solves this by:
 
-This keeps the tool aligned with Git-first storage while moving scale-heavy query operations to a dedicated component.
+- maintaining a **permanent** `reviews` table — one row per review, storing summary data (ID, title, author, status, branch, base branch, primary repository, reviewers, last updated)
+- maintaining the existing `events` and `repository_state` tables for the event log and reconciliation window
+- serving the full review list to any client on `GET /reviews` at connect time
+- pushing incremental `review.updated`, `branch.created`, `branch.deleted`, `commit.pushed` events to connected clients via SSE
+- using PostgreSQL `pg_notify` → `LISTEN` to fan out events from the writer thread to all SSE connections without polling
+
+### Infrastructure
+
+The indexer already runs PostgreSQL with:
+- `events` table — append-only event log with per-repository sequence numbers and delivery-id deduplication
+- `repository_state` table — tracks `last_sequence_no` and `last_event_time` per repository for reconciliation
+
+The `reviews` table is the new permanent addition:
+
+```sql
+CREATE TABLE IF NOT EXISTS reviews (
+    review_id    TEXT        PRIMARY KEY,
+    status       TEXT        NOT NULL DEFAULT 'OPEN',
+    repositories JSONB       NOT NULL DEFAULT '[]',
+    last_updated TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+Updated or inserted on every `review.updated` event received by the indexer. Queried on client connect filtered by `since=`, `status=`, and `repositories=`. All review content (title, author, branch, reviewers, comments) is fetched from git on demand via `git cat-file --batch` — the indexer stores routing and filter keys only.
 
 ### Scope Boundary
-- **In-tool responsibility**:
-  - write and read authoritative review data in Git notes
-  - operate when the indexer is unavailable (fallback behavior)
-  - hydrate full review details for selected review IDs
-- **Indexer/plugin responsibility**:
-  - repository-wide indexing and summary query
-  - review ID routing lookup
-  - change-feed notifications to connected clients
+
+- **Git responsibility**:
+  - authoritative store for full review detail (comments, reviewer history, file data, audit trail)
+  - write target for all create/update operations from the client
+  - conflict resolution and recovery source
+
+- **Indexer responsibility**:
+  - permanent review summary index (`reviews` table)
+  - branch and commit state per repository
+  - event log with retention window
+  - SSE fan-out to all connected clients
+  - webhook ingestion from all providers
+  - reconciliation on startup and reconnect
+
+- **Client responsibility**:
+  - write review data to git
+  - read full review detail from git on demand (single review selected by user)
+  - subscribe to indexer SSE for all list-level updates
+  - cache last-known review list locally for offline / indexer-down fallback
+
+### Client Connect Sequence
+
+```
+Client connects to indexer
+  → GET /reviews?since=<timestamp>&status=OPEN
+     → Fetch review index including `repositories` and `branches` (repository entries include `repository_url`)
+  → GET /branches?q=<branch_prefix>&include_reviews=true   fetch global branch state / resolve branch→repository and optional review routing keys
+  → Subscribe SSE                   receive incremental updates from this point forward
+
+User selects a review
+  → Read full metadata from git      targeted, on demand — not from indexer
+
+User creates / edits a review
+  → Write to git
+  → Indexer receives webhook (or POST /events/notify)
+  → Indexer updates reviews table
+  → Indexer emits SSE event to all connected clients
+```
+
+### Fallback When Indexer Is Unavailable
+
+- Client displays last locally cached review list with a visible staleness warning
+- Write operations (create/edit review) proceed against git directly — they do not require the indexer
+- On reconnect, client re-fetches `GET /reviews` to reconcile any missed updates
 
 ### Benefits
-- **Scalability**: Avoids `O(total reviews)` refresh paths in clients
-- **Responsiveness**: Enables near real-time incremental updates in UI lists
-- **Separation of Concerns**: Keeps source-of-truth storage decoupled from query acceleration
-- **Extensibility**: Allows alternative index implementations without changing review storage format
+- **Scalability**: `O(1)` review list fetch at client connect regardless of review count
+- **Responsiveness**: Near real-time incremental updates via SSE — no polling anywhere
+- **Separation of Concerns**: Index decoupled from full-detail storage; each optimised for its access pattern
+- **No client polling**: Clients are purely reactive to indexer events for list-level state
 
 ### Trade-offs
-- **Operational Complexity**: Adds another deployable component
-- **Consistency Window**: Index may lag behind Git briefly (eventual consistency)
-- **Fallback Requirement**: Client must handle index downtime gracefully
-
-### Operational Rules
-- Indexer is an accelerator, not the source of truth
-- Git notes remain canonical for conflict resolution and recovery
-- Client must support direct-by-`reviewId` fallback reads from Git
+- **Indexer is now required for normal operation**: The review list is not available without the indexer unless the client falls back to its local cache
+- **Consistency window**: The `reviews` table may lag git by the time it takes the webhook to arrive and be processed — typically sub-second on normal network conditions
+- **Bootstrap cost**: First-run scan across all tracked repositories to populate the `reviews` table; one-time operation, resumable
 
 ### Date Decided
-2026-05-11
+2026-05-20
 
 ### Status
-**ACTIVE** - Required direction for 100k+ review scaling strategy
-
-
-
+**REVISED** — Expanded from accelerator-only to permanent index store. Supersedes the 2026-05-11 entry. Pending implementation of `reviews` table, `GET /reviews` endpoint, and client SSE subscription logic.

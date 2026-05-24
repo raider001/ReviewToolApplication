@@ -2,6 +2,7 @@ package com.kalynx.serverlessreviewtool.ui.mainpanels;
 
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.git.Git;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.managers.FileDiffManager;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
@@ -54,6 +55,7 @@ public class ReviewPanel extends ThemedPanel {
     private final ReviewFormModels reviewFormModels;
     private final ReviewPanelModel model;
     private final Git git;
+    private final ReviewBranchManagerFactory branchManagerFactory;
 
     private final ReviewDetailPanel reviewDetailPanel;
     private final CodePanel codePanel;
@@ -86,13 +88,15 @@ public class ReviewPanel extends ThemedPanel {
                        ReviewFormModels reviewFormModels,
                        ReviewPanelModel reviewPanelModel,
                        Git git,
-                       PluginManager pluginManager) {
+                       PluginManager pluginManager,
+                       ReviewBranchManagerFactory branchManagerFactory) {
         this.settingsManager = settingsManager;
         this.reviewContextManager = reviewContextManager;
         this.repositoryManager = repositoryManager;
         this.reviewFormModels = reviewFormModels;
         this.model = reviewPanelModel;
         this.git = git;
+        this.branchManagerFactory = branchManagerFactory;
 
         FileDiffManager fileDiffManager = new FileDiffManager(git, reviewPanelModel.codeViewerModel);
         this.reviewDetailPanel = new ReviewDetailPanel(settingsManager, reviewPanelModel.reviewDetailModel);
@@ -207,7 +211,7 @@ public class ReviewPanel extends ThemedPanel {
         }
         LOGGER.debug("Opening edit dialog for review: {}", currentReviewContext.reviewId);
         EditReviewDialog dialog = new EditReviewDialog(
-            this, currentReviewContext, reviewFormModels, repositoryManager, reviewContextManager, git);
+            this, currentReviewContext, reviewFormModels, repositoryManager, reviewContextManager, git, branchManagerFactory);
         dialog.setOnReviewUpdated(() -> refreshReviewDetail(currentReviewContext));
         dialog.setVisible(true);
     }

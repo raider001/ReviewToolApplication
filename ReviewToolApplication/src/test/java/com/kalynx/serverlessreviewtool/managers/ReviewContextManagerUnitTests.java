@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewComment;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
@@ -43,7 +43,7 @@ class ReviewContextManagerUnitTests {
     private ReviewChangeSetManager changeSetManager;
     private ReviewMetadataLoader metadataLoader;
     private ReviewerManager reviewerManager;
-    private GitReviewNotesManager notesManager;
+    private OrphanBranchReviewManager notesManager;
     private ReviewContextManager manager;
 
     @BeforeEach
@@ -52,8 +52,11 @@ class ReviewContextManagerUnitTests {
         changeSetManager = mock(ReviewChangeSetManager.class);
         metadataLoader = mock(ReviewMetadataLoader.class);
         reviewerManager = mock(ReviewerManager.class);
-        notesManager = mock(GitReviewNotesManager.class);
-        ReviewNotesManagerFactory factory = _ -> notesManager;
+        notesManager = mock(OrphanBranchReviewManager.class);
+        // Default stub for writeRepositoryActive — called whenever repository membership changes.
+        when(notesManager.writeRepositoryActive(anyString(), anyString(), anyString(), any(Boolean.class)))
+                .thenReturn(CompletableFuture.completedFuture(null));
+        ReviewBranchManagerFactory factory = _ -> notesManager;
         manager = new ReviewContextManager(factory, commentManager, changeSetManager, metadataLoader, reviewerManager);
     }
 

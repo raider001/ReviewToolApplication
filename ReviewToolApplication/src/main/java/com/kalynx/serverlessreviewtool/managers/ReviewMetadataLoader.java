@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
@@ -30,7 +30,7 @@ public class ReviewMetadataLoader {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ReviewMetadataLoader.class);
 
-    private final ReviewNotesManagerFactory notesManagerFactory;
+    private final ReviewBranchManagerFactory branchManagerFactory;
     private final RepositoryManager repositoryManager;
     private final ReviewCommentManager commentManager;
     private final Supplier<ReviewContext> contextSupplier;
@@ -38,16 +38,16 @@ public class ReviewMetadataLoader {
     /**
      * Constructs a ReviewMetadataLoader.
      *
-     * @param notesManagerFactory factory for creating per-repository git notes managers
+     * @param branchManagerFactory factory for creating per-repository orphan branch managers
      * @param repositoryManager the repository manager
      * @param commentManager the comment manager for loading comments alongside metadata
      * @param contextSupplier supplier for the current ReviewContext, used to preserve existing comments on reload
      */
-    public ReviewMetadataLoader(ReviewNotesManagerFactory notesManagerFactory,
+    public ReviewMetadataLoader(ReviewBranchManagerFactory branchManagerFactory,
                                 RepositoryManager repositoryManager,
                                 ReviewCommentManager commentManager,
                                 Supplier<ReviewContext> contextSupplier) {
-        this.notesManagerFactory = notesManagerFactory;
+        this.branchManagerFactory = branchManagerFactory;
         this.repositoryManager = repositoryManager;
         this.commentManager = commentManager;
         this.contextSupplier = contextSupplier;
@@ -243,7 +243,7 @@ public class ReviewMetadataLoader {
         LOGGER.debug("Loading review metadata: reviewId={}, primaryRepo={}, repos={}",
             reviewId, primaryRepoName, orderedRepositories.size());
 
-        GitReviewNotesManager notesManager = notesManagerFactory.create(primaryRepoName);
+        OrphanBranchReviewManager notesManager = branchManagerFactory.create(primaryRepoName);
         ReviewContext currentContext = contextSupplier.get();
         List<com.kalynx.serverlessreviewtool.models.ReviewComment> existingComments =
             currentContext != null && reviewId.equals(currentContext.reviewId)
@@ -336,7 +336,7 @@ public class ReviewMetadataLoader {
 
         List<CompletableFuture<PrimaryRepositoryCandidate>> futures = candidateRepositories.stream()
             .map(repository -> {
-                GitReviewNotesManager notesManager = notesManagerFactory.create(repository.getName());
+                OrphanBranchReviewManager notesManager = branchManagerFactory.create(repository.getName());
                 return notesManager.readAllMetadata(reviewId)
                     .thenApply(metadata -> buildPrimaryRepositoryCandidate(repository, metadata))
                     .exceptionally(_ -> new PrimaryRepositoryCandidate(repository.getName(), null, 0L, false));
@@ -369,7 +369,7 @@ public class ReviewMetadataLoader {
     }
 
     private PrimaryRepositoryCandidate buildPrimaryRepositoryCandidate(
-            Repository repository, GitReviewNotesManager.ReviewMetadata metadata) {
+            Repository repository, OrphanBranchReviewManager.ReviewMetadata metadata) {
         String rawValue = getLatestValue(metadata.primaryRepository());
         if (rawValue == null || rawValue.isBlank() || "false".equalsIgnoreCase(rawValue.trim())) {
             return new PrimaryRepositoryCandidate(repository.getName(), null, 0L, false);
@@ -387,7 +387,7 @@ public class ReviewMetadataLoader {
         long start = System.nanoTime();
         List<CompletableFuture<Repository>> futures = candidateRepositories.stream()
             .map(repo -> {
-                GitReviewNotesManager notesManager = notesManagerFactory.create(repo.getName());
+                OrphanBranchReviewManager notesManager = branchManagerFactory.create(repo.getName());
                 return notesManager.readTitles(reviewId)
                     .thenApply(titles -> (titles != null && !titles.isEmpty()) ? repo : null)
                     .exceptionally(ignored -> null);

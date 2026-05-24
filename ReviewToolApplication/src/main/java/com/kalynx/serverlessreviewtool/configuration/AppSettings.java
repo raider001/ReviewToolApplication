@@ -12,6 +12,7 @@ public class AppSettings {
 
     private final WindowSettings window;
     private String notificationServiceUrl;
+    private String indexerUrl;
     private List<RepositoryConfig> repositories;
     private String theme;
     private String loggedInUserName;
@@ -21,6 +22,7 @@ public class AppSettings {
     public AppSettings() {
         this.window = new WindowSettings();
         this.notificationServiceUrl = "";
+        this.indexerUrl = "";
         this.repositories = new ArrayList<>();
         this.theme = "Dark";
         this.loggedInUserName = "";
@@ -47,6 +49,9 @@ public class AppSettings {
 
     public String getNotificationServiceUrl() { return notificationServiceUrl; }
     public void setNotificationServiceUrl(String url) { this.notificationServiceUrl = url; }
+
+    public String getIndexerUrl() { return indexerUrl != null ? indexerUrl : ""; }
+    public void setIndexerUrl(String url) { this.indexerUrl = url; }
 
     public List<RepositoryConfig> getRepositories() { return repositories; }
     public void setRepositories(List<RepositoryConfig> repositories) { this.repositories = repositories; }

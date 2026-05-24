@@ -12,3 +12,9 @@
 [submodule "KalynxSwingCustomTheme"]
 	path = KalynxSwingCustomTheme
 	url = https://github.com/raider001/KalynxSwingCustomTheme.git
+[submodule "ReviewToolCentralIndexer"]
+	path = ReviewToolCentralIndexer
+	url = https://github.com/raider001/ReviewToolCentralIndexer.git
+[submodule "ReviewToolCentralIndexerPluginApi"]
+	path = ReviewToolCentralIndexerPluginApi
+	url = https://github.com/raider001/ReviewToolCentralIndexerPluginApi.git

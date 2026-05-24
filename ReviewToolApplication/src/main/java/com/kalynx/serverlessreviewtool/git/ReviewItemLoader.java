@@ -2,79 +2,98 @@ package com.kalynx.serverlessreviewtool.git;
 
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
+import com.kalynx.serverlessreviewtool.models.review.ReviewerData;
 import com.kalynx.serverlessreviewtool.models.review.StreamEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Loads review item projections from repository review notes.
+ * Loads review item projections from the {@code refs/heads/kalynx-reviews} orphan branch
+ * via {@link OrphanBranchReviewManager}.
+ *
+ * <p>Each public entry point accepts a {@code remoteUrl} so the factory can route to the
+ * correct {@link OrphanBranchStore} for that remote. Reads are handled entirely by JGit
+ * plumbing inside the store — no subprocess git commands, no temp files.
  */
 public class ReviewItemLoader {
     private static final Logger LOGGER = LoggerFactory.getLogger(ReviewItemLoader.class);
 
-    private final Git git;
-    private final ReviewNotesManagerFactory notesManagerFactory;
-    private static final String NOTES_REF_PREFIX = "refs/notes/reviews/";
-    private static final Pattern REVIEW_ID_PATTERN = Pattern.compile("^" + Pattern.quote(NOTES_REF_PREFIX) + "([^/]+)/");
+    private final OrphanBranchReviewManagerFactory managerFactory;
     private static final int GIT_LOAD_BATCH_SIZE = 16;
 
     /**
-     * Constructs a ReviewItemLoader.
+     * Constructs a ReviewItemLoader backed by the orphan-branch storage.
      *
-     * @param git the git client
-     * @param notesManagerFactory factory for creating per-repository git notes managers
+     * @param managerFactory factory that produces a manager for a given (repositoryName, remoteUrl) pair
      */
-    public ReviewItemLoader(Git git, ReviewNotesManagerFactory notesManagerFactory) {
-        this.git = git;
-        this.notesManagerFactory = notesManagerFactory;
+    public ReviewItemLoader(OrphanBranchReviewManagerFactory managerFactory) {
+        this.managerFactory = managerFactory;
     }
 
-    public CompletableFuture<List<ReviewItem>> loadReviewsFromRepository(String repositoryName) {
-        return synchronizeRepository(repositoryName)
-            .thenCompose(ignored -> listReviewIds(repositoryName))
-            .thenCompose(reviewIds -> loadReviewItems(repositoryName, reviewIds));
+    public CompletableFuture<List<ReviewItem>> loadReviewsFromRepository(String repositoryName, String remoteUrl) {
+        return listReviewIds(repositoryName, remoteUrl)
+            .thenCompose(reviewIds -> loadReviewItems(repositoryName, remoteUrl, reviewIds));
     }
 
     /**
-     * Loads review items from a repository in bounded batches and emits each item as soon as its batch completes.
-     * At most {@value #GIT_LOAD_BATCH_SIZE} concurrent git operations are in-flight at any time.
+     * Loads review items from a repository in bounded batches and emits each item as soon as
+     * its batch completes. At most {@value #GIT_LOAD_BATCH_SIZE} concurrent reads are in-flight.
      *
      * @param repositoryName repository to load from
+     * @param remoteUrl      canonical git remote URL for the repository
      * @param onReviewLoaded callback invoked for each loaded review item
      * @return future completed when all review items have been attempted
      */
-    public CompletableFuture<Void> loadReviewsFromRepositoryLazy(String repositoryName, Consumer<ReviewItem> onReviewLoaded) {
-        return synchronizeRepository(repositoryName)
-            .thenCompose(ignored -> listReviewIds(repositoryName))
-            .thenCompose(reviewIds -> loadInBatches(repositoryName, reviewIds, onReviewLoaded));
+    public CompletableFuture<Void> loadReviewsFromRepositoryLazy(String repositoryName,
+                                                                   String remoteUrl,
+                                                                   Consumer<ReviewItem> onReviewLoaded) {
+        return listReviewIds(repositoryName, remoteUrl)
+            .thenCompose(reviewIds -> loadInBatches(repositoryName, remoteUrl, reviewIds, onReviewLoaded));
     }
 
+    /**
+     * Loads a single review item for use in targeted notification-driven refreshes.
+     *
+     * @param repositoryName repository containing the review
+     * @param remoteUrl      canonical git remote URL
+     * @param reviewId       review identifier
+     * @return future containing the review item, or {@code null} if the review cannot be projected
+     */
+    public CompletableFuture<ReviewItem> loadSingleReviewItem(String repositoryName,
+                                                               String remoteUrl,
+                                                               String reviewId) {
+        return loadReviewItem(repositoryName, remoteUrl, reviewId);
+    }
+
+    // -------------------------------------------------------------------------
+    // Private batch helpers
+    // -------------------------------------------------------------------------
+
     private CompletableFuture<Void> loadInBatches(String repositoryName,
+                                                   String remoteUrl,
                                                    List<String> reviewIds,
                                                    Consumer<ReviewItem> onReviewLoaded) {
         List<List<String>> batches = partition(reviewIds);
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
         for (List<String> batch : batches) {
-            chain = chain.thenCompose(ignored -> loadBatch(repositoryName, batch, onReviewLoaded));
+            chain = chain.thenCompose(ignored -> loadBatch(repositoryName, remoteUrl, batch, onReviewLoaded));
         }
         return chain;
     }
 
     private CompletableFuture<Void> loadBatch(String repositoryName,
+                                               String remoteUrl,
                                                List<String> reviewIds,
                                                Consumer<ReviewItem> onReviewLoaded) {
         List<CompletableFuture<Void>> futures = reviewIds.stream()
-            .map(reviewId -> loadReviewItem(repositoryName, reviewId)
+            .map(reviewId -> loadReviewItem(repositoryName, remoteUrl, reviewId)
                 .thenAccept(reviewItem -> {
                     if (reviewItem != null) {
                         onReviewLoaded.accept(reviewItem);
@@ -92,44 +111,23 @@ public class ReviewItemLoader {
         return partitions;
     }
 
-    private CompletableFuture<Void> synchronizeRepository(String repositoryName) {
-        long start = System.nanoTime();
-        return git.fetch(repositoryName)
-            .thenRun(() -> LOGGER.info("TIMING [{}] synchronizeRepository fetch: {}ms", repositoryName,
-                (System.nanoTime() - start) / 1_000_000))
+    // -------------------------------------------------------------------------
+    // Core read operations
+    // -------------------------------------------------------------------------
+
+    private CompletableFuture<List<String>> listReviewIds(String repositoryName, String remoteUrl) {
+        return managerFactory.create(repositoryName, remoteUrl).listReviewIds()
             .exceptionally(ex -> {
-                LOGGER.warn("Failed to synchronize repository {} before reading reviews", repositoryName, ex);
-                return null;
+                LOGGER.warn("Failed to list review IDs for {} ({}): {}", repositoryName, remoteUrl, ex.getMessage());
+                return new ArrayList<>();
             });
     }
 
-    private CompletableFuture<List<String>> listReviewIds(String repositoryName) {
-        return git.executeAsync(repositoryName, "show-ref")
-            .thenApply(output -> {
-                LinkedHashSet<String> reviewIdSet = new LinkedHashSet<>();
-                String[] lines = output.split("\n");
-
-                for (String line : lines) {
-                    String[] parts = line.trim().split("\\s+");
-                    if (parts.length >= 2) {
-                        String ref = parts[1];
-                        if (ref.startsWith(NOTES_REF_PREFIX)) {
-                            Matcher matcher = REVIEW_ID_PATTERN.matcher(ref);
-                            if (matcher.find()) {
-                                reviewIdSet.add(matcher.group(1));
-                            }
-                        }
-                    }
-                }
-
-                return (List<String>) new ArrayList<>(reviewIdSet);
-            })
-            .exceptionally(_ -> new ArrayList<>());
-    }
-
-    private CompletableFuture<List<ReviewItem>> loadReviewItems(String repositoryName, List<String> reviewIds) {
+    private CompletableFuture<List<ReviewItem>> loadReviewItems(String repositoryName,
+                                                                 String remoteUrl,
+                                                                 List<String> reviewIds) {
         List<CompletableFuture<ReviewItem>> reviewFutures = reviewIds.stream()
-            .map(reviewId -> loadReviewItem(repositoryName, reviewId))
+            .map(reviewId -> loadReviewItem(repositoryName, remoteUrl, reviewId))
             .toList();
 
         return CompletableFuture.allOf(reviewFutures.toArray(new CompletableFuture[0]))
@@ -139,15 +137,17 @@ public class ReviewItemLoader {
                 .collect(Collectors.toList()));
     }
 
-    private CompletableFuture<ReviewItem> loadReviewItem(String repositoryName, String reviewId) {
-        GitReviewNotesManager notesManager = notesManagerFactory.create(repositoryName);
+    private CompletableFuture<ReviewItem> loadReviewItem(String repositoryName,
+                                                          String remoteUrl,
+                                                          String reviewId) {
+        OrphanBranchReviewManager manager = managerFactory.create(repositoryName, remoteUrl);
 
-        return notesManager.readAllMetadataFromLocal(reviewId)
+        return manager.readAllMetadata(reviewId)
             .thenApply(metadata -> {
                 List<StreamEntry<String>> titleEntries = metadata.titles();
                 List<StreamEntry<String>> authorEntries = metadata.authors();
                 List<StreamEntry<String>> statusEntries = metadata.statuses();
-                List<StreamEntry<com.kalynx.serverlessreviewtool.models.review.ReviewerData>> reviewerEntries = metadata.reviewers();
+                List<StreamEntry<ReviewerData>> reviewerEntries = metadata.reviewers();
 
                 String primaryRepositoryValue = getLatestValue(metadata.primaryRepository());
                 boolean isSecondaryReference = "false".equalsIgnoreCase(primaryRepositoryValue);
@@ -210,6 +210,10 @@ public class ReviewItemLoader {
             });
     }
 
+    // -------------------------------------------------------------------------
+    // Projection helpers
+    // -------------------------------------------------------------------------
+
     private String normalizePrimaryRepository(String primaryRepositoryValue, String repositoryName) {
         if (primaryRepositoryValue == null || primaryRepositoryValue.isBlank()) {
             return repositoryName;
@@ -232,7 +236,6 @@ public class ReviewItemLoader {
                                         List<StreamEntry<String>> statusEntries,
                                         List<StreamEntry<com.kalynx.serverlessreviewtool.models.review.ReviewerData>> reviewerEntries) {
         long mostRecent = 0;
-
         mostRecent = Math.max(mostRecent, getLatestTimestamp(titleEntries));
         mostRecent = Math.max(mostRecent, getLatestTimestamp(descriptionEntries));
         mostRecent = Math.max(mostRecent, getLatestTimestamp(authorEntries));
@@ -241,7 +244,6 @@ public class ReviewItemLoader {
         mostRecent = Math.max(mostRecent, getLatestTimestamp(baseBranchEntries));
         mostRecent = Math.max(mostRecent, getLatestTimestamp(statusEntries));
         mostRecent = Math.max(mostRecent, getLatestTimestamp(reviewerEntries));
-
         return mostRecent;
     }
 
@@ -274,4 +276,3 @@ public class ReviewItemLoader {
         }
     }
 }
-

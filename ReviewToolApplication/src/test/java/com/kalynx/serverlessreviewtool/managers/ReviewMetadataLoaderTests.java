@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
@@ -32,17 +32,17 @@ class ReviewMetadataLoaderTests {
     private static final String REVIEW_ID = "review-abc";
     private static final String REPO_NAME = "backend";
 
-    private GitReviewNotesManager notesManager;
+    private OrphanBranchReviewManager notesManager;
     private RepositoryManager repositoryManager;
     private ReviewMetadataLoader loader;
 
     @BeforeEach
     void setUp() {
-        notesManager = mock(GitReviewNotesManager.class);
+        notesManager = mock(OrphanBranchReviewManager.class);
         repositoryManager = mock(RepositoryManager.class);
         ReviewCommentManager commentManager = mock(ReviewCommentManager.class);
 
-        ReviewNotesManagerFactory factory = _ -> notesManager;
+        ReviewBranchManagerFactory factory = _ -> notesManager;
         loader = new ReviewMetadataLoader(factory, repositoryManager, commentManager, () -> null);
 
         when(commentManager.loadCommentsFromKnownRepository(anyString(), anyString()))
@@ -129,7 +129,7 @@ class ReviewMetadataLoaderTests {
         when(repositoryManager.getRepositories()).thenReturn(List.of(new Repository(REPO_NAME, "", "")));
         when(repositoryManager.getRepositoryByName(REPO_NAME)).thenReturn(new Repository(REPO_NAME, "", ""));
 
-        GitReviewNotesManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
+        OrphanBranchReviewManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
             List.of(streamEntry("alice", new ReviewerData("approved", null))));
 
         when(notesManager.readTitles(anyString()))
@@ -151,7 +151,7 @@ class ReviewMetadataLoaderTests {
         when(repositoryManager.getRepositories()).thenReturn(List.of(new Repository(REPO_NAME, "", "")));
         when(repositoryManager.getRepositoryByName(REPO_NAME)).thenReturn(new Repository(REPO_NAME, "", ""));
 
-        GitReviewNotesManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
+        OrphanBranchReviewManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
             List.of(streamEntry("bob", new ReviewerData("left", null))));
 
         when(notesManager.readTitles(anyString()))
@@ -171,7 +171,7 @@ class ReviewMetadataLoaderTests {
         when(repositoryManager.getRepositories()).thenReturn(List.of(new Repository(REPO_NAME, "", "")));
         when(repositoryManager.getRepositoryByName(REPO_NAME)).thenReturn(new Repository(REPO_NAME, "", ""));
 
-        GitReviewNotesManager.ReviewMetadata metadata = new GitReviewNotesManager.ReviewMetadata(
+        OrphanBranchReviewManager.ReviewMetadata metadata = new OrphanBranchReviewManager.ReviewMetadata(
             List.of(), List.of(), List.of(stringEntry("author", "author")),
             List.of(), List.of(), List.of(), List.of(stringEntry("system", "OPEN")), List.of(), List.of());
 
@@ -258,7 +258,7 @@ class ReviewMetadataLoaderTests {
         when(repositoryManager.getRepositories()).thenReturn(List.of(new Repository(REPO_NAME, "", "")));
         when(repositoryManager.getRepositoryByName(REPO_NAME)).thenReturn(new Repository(REPO_NAME, "", ""));
 
-        GitReviewNotesManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
+        OrphanBranchReviewManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
             List.of(streamEntry("charlie", new ReviewerData("changes_requested", null))));
 
         when(notesManager.readTitles(anyString()))
@@ -279,7 +279,7 @@ class ReviewMetadataLoaderTests {
         when(repositoryManager.getRepositories()).thenReturn(List.of(new Repository(REPO_NAME, "", "")));
         when(repositoryManager.getRepositoryByName(REPO_NAME)).thenReturn(new Repository(REPO_NAME, "", ""));
 
-        GitReviewNotesManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
+        OrphanBranchReviewManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
             List.of(streamEntry("dave", new ReviewerData("rejected", null))));
 
         when(notesManager.readTitles(anyString()))
@@ -299,7 +299,7 @@ class ReviewMetadataLoaderTests {
         when(repositoryManager.getRepositories()).thenReturn(List.of(new Repository(REPO_NAME, "", "")));
         when(repositoryManager.getRepositoryByName(REPO_NAME)).thenReturn(new Repository(REPO_NAME, "", ""));
 
-        GitReviewNotesManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
+        OrphanBranchReviewManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
             List.of(streamEntry("eve", new ReviewerData("reviewing", null))));
 
         when(notesManager.readTitles(anyString()))
@@ -319,7 +319,7 @@ class ReviewMetadataLoaderTests {
         when(repositoryManager.getRepositories()).thenReturn(List.of(new Repository(REPO_NAME, "", "")));
         when(repositoryManager.getRepositoryByName(REPO_NAME)).thenReturn(new Repository(REPO_NAME, "", ""));
 
-        GitReviewNotesManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
+        OrphanBranchReviewManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
             List.of(streamEntry("fred", new ReviewerData("pending", null))));
 
         when(notesManager.readTitles(anyString()))
@@ -339,7 +339,7 @@ class ReviewMetadataLoaderTests {
         when(repositoryManager.getRepositories()).thenReturn(List.of(new Repository(REPO_NAME, "", "")));
         when(repositoryManager.getRepositoryByName(REPO_NAME)).thenReturn(new Repository(REPO_NAME, "", ""));
 
-        GitReviewNotesManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
+        OrphanBranchReviewManager.ReviewMetadata metadata = buildMetadata("Title", "author", "OPEN", "branch", "base",
             List.of(streamEntry("grace", new ReviewerData("unknown_gibberish", null))));
 
         when(notesManager.readTitles(anyString()))
@@ -359,7 +359,7 @@ class ReviewMetadataLoaderTests {
         when(repositoryManager.getRepositories()).thenReturn(List.of(new Repository(REPO_NAME, "", "")));
         when(repositoryManager.getRepositoryByName(REPO_NAME)).thenReturn(new Repository(REPO_NAME, "", ""));
 
-        GitReviewNotesManager.ReviewMetadata metadata = new GitReviewNotesManager.ReviewMetadata(
+        OrphanBranchReviewManager.ReviewMetadata metadata = new OrphanBranchReviewManager.ReviewMetadata(
             List.of(stringEntry("author", "Title")),
             List.of(),
             List.of(stringEntry("author", "author")),
@@ -388,7 +388,7 @@ class ReviewMetadataLoaderTests {
         when(repositoryManager.getRepositories()).thenReturn(List.of(new Repository(REPO_NAME, "", "")));
         when(repositoryManager.getRepositoryByName(REPO_NAME)).thenReturn(new Repository(REPO_NAME, "", ""));
 
-        GitReviewNotesManager.ReviewMetadata metadataWithPrimary = new GitReviewNotesManager.ReviewMetadata(
+        OrphanBranchReviewManager.ReviewMetadata metadataWithPrimary = new OrphanBranchReviewManager.ReviewMetadata(
             List.of(stringEntry("author", "Title")),
             List.of(),
             List.of(stringEntry("author", "author")),
@@ -414,17 +414,17 @@ class ReviewMetadataLoaderTests {
 
     private void stubNotesManagerForReviewFound(String title, String author,
                                                 String status, String branch, String baseBranch) {
-        GitReviewNotesManager.ReviewMetadata metadata = buildMetadata(title, author, status, branch, baseBranch, List.of());
+        OrphanBranchReviewManager.ReviewMetadata metadata = buildMetadata(title, author, status, branch, baseBranch, List.of());
         when(notesManager.readTitles(anyString()))
             .thenReturn(CompletableFuture.completedFuture(List.of(stringEntry(author, title))));
         when(notesManager.readAllMetadata(ReviewMetadataLoaderTests.REVIEW_ID))
             .thenReturn(CompletableFuture.completedFuture(metadata));
     }
 
-    private GitReviewNotesManager.ReviewMetadata buildMetadata(String title, String author, String status,
+    private OrphanBranchReviewManager.ReviewMetadata buildMetadata(String title, String author, String status,
                                                                String branch, String baseBranch,
                                                                List<StreamEntry<ReviewerData>> reviewers) {
-        return new GitReviewNotesManager.ReviewMetadata(
+        return new OrphanBranchReviewManager.ReviewMetadata(
             List.of(stringEntry(author, title)),
             List.of(),
             List.of(stringEntry(author, author)),

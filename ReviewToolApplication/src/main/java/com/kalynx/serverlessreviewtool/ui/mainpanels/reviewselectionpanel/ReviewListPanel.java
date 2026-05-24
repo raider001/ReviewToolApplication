@@ -58,17 +58,6 @@ public class ReviewListPanel extends ThemedPanel {
         model.completedReviews.addChangeListener(reviews -> updateList(completedReviewsList, reviews));
     }
 
-    public void setOnReviewDoubleClick(Consumer<ReviewItem> callback) {
-        allReviewsList.onDoubleClick(callback);
-        myReviewsList.onDoubleClick(callback);
-        myOpenReviewsList.onDoubleClick(callback);
-        completedReviewsList.onDoubleClick(callback);
-    }
-
-    public void applyFilters(String titleFilter, String authorFilter, List<String> repositoryFilter) {
-        model.setFilters(titleFilter, authorFilter, repositoryFilter);
-    }
-
     private void updateList(ReviewList list, List<ReviewItem> reviews) {
         SwingUtilities.invokeLater(() -> {
             DefaultListModel<ReviewItem> listModel = (DefaultListModel<ReviewItem>) list.getModel();

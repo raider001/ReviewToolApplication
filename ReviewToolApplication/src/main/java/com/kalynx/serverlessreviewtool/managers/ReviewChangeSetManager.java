@@ -1,8 +1,8 @@
 package com.kalynx.serverlessreviewtool.managers;
 
 import com.kalynx.serverlessreviewtool.git.Git;
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.FileChangeType;
 import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
@@ -27,17 +27,17 @@ public class ReviewChangeSetManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(ReviewChangeSetManager.class);
 
     private final Git git;
-    private final ReviewNotesManagerFactory notesManagerFactory;
+    private final ReviewBranchManagerFactory branchManagerFactory;
 
     /**
-     * Constructs a ReviewChangeSetManager with the given git client and notes manager factory.
+     * Constructs a ReviewChangeSetManager with the given git client and branch manager factory.
      *
-     * @param git the git client used for all git operations
-     * @param notesManagerFactory factory for creating per-repository git notes managers
+     * @param git                  the git client used for all git operations
+     * @param branchManagerFactory factory for creating per-repository orphan branch managers
      */
-    public ReviewChangeSetManager(Git git, ReviewNotesManagerFactory notesManagerFactory) {
+    public ReviewChangeSetManager(Git git, ReviewBranchManagerFactory branchManagerFactory) {
         this.git = git;
-        this.notesManagerFactory = notesManagerFactory;
+        this.branchManagerFactory = branchManagerFactory;
     }
 
     /**
@@ -240,7 +240,7 @@ public class ReviewChangeSetManager {
         if (reviewId == null || reviewId.isBlank() || repositoryName == null || repositoryName.isBlank()) {
             return CompletableFuture.completedFuture(List.of());
         }
-        GitReviewNotesManager notesManager = notesManagerFactory.create(repositoryName);
+        OrphanBranchReviewManager notesManager = branchManagerFactory.create(repositoryName);
         return notesManager.readCommits(reviewId)
             .thenApply(this::getLatestValue)
             .thenApply(commits -> commits != null ? commits : List.<String>of())
@@ -285,7 +285,7 @@ public class ReviewChangeSetManager {
 
     private CompletableFuture<Map.Entry<String, List<String>>> captureCommitSnapshotForRepository(
             String reviewId, Repository repo, String reviewBranch, String baseBranch, String editor) {
-        GitReviewNotesManager notesManager = notesManagerFactory.create(repo.getName());
+        OrphanBranchReviewManager notesManager = branchManagerFactory.create(repo.getName());
         return resolveComparisonRefs(repo.getName(), baseBranch, reviewBranch)
             .thenCompose(resolved -> {
                 String commitRange = resolved.baseRef() + ".." + resolved.reviewRef();

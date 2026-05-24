@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.ReviewerStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,21 +11,21 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Manages reviewer membership and status changes for a review.
- * Writes reviewer entries to git notes via GitReviewNotesManager.
+ * Writes reviewer entries via the orphan branch store.
  */
 public class ReviewerManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ReviewerManager.class);
 
-    private final ReviewNotesManagerFactory notesManagerFactory;
+    private final ReviewBranchManagerFactory branchManagerFactory;
 
     /**
      * Constructs a ReviewerManager.
      *
-     * @param notesManagerFactory factory for creating per-repository git notes managers
+     * @param branchManagerFactory factory for creating per-repository orphan branch managers
      */
-    public ReviewerManager(ReviewNotesManagerFactory notesManagerFactory) {
-        this.notesManagerFactory = notesManagerFactory;
+    public ReviewerManager(ReviewBranchManagerFactory branchManagerFactory) {
+        this.branchManagerFactory = branchManagerFactory;
     }
 
     /**
@@ -43,7 +43,7 @@ public class ReviewerManager {
         }
 
         String primaryRepoName = repositoryNames.getFirst();
-        GitReviewNotesManager notesManager = notesManagerFactory.create(primaryRepoName);
+        OrphanBranchReviewManager notesManager = branchManagerFactory.create(primaryRepoName);
 
         com.kalynx.serverlessreviewtool.models.review.ReviewerData reviewerData =
             new com.kalynx.serverlessreviewtool.models.review.ReviewerData("REVIEWING", null);
@@ -74,7 +74,7 @@ public class ReviewerManager {
         }
 
         String primaryRepoName = repositoryNames.getFirst();
-        GitReviewNotesManager notesManager = notesManagerFactory.create(primaryRepoName);
+        OrphanBranchReviewManager notesManager = branchManagerFactory.create(primaryRepoName);
         String statusValue = mapReviewerStatus(reviewerStatus);
 
         com.kalynx.serverlessreviewtool.models.review.ReviewerData reviewerData =
@@ -101,7 +101,7 @@ public class ReviewerManager {
         }
 
         String primaryRepoName = repositoryNames.getFirst();
-        GitReviewNotesManager notesManager = notesManagerFactory.create(primaryRepoName);
+        OrphanBranchReviewManager notesManager = branchManagerFactory.create(primaryRepoName);
 
         com.kalynx.serverlessreviewtool.models.review.ReviewerData reviewerData =
             new com.kalynx.serverlessreviewtool.models.review.ReviewerData("LEFT", null);

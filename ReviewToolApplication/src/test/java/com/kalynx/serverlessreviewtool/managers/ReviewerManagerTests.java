@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.ReviewerStatus;
 import com.kalynx.serverlessreviewtool.models.review.ReviewerData;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,13 +32,13 @@ class ReviewerManagerTests {
     private static final String REVIEWER_NAME = "alice";
     private static final String REPO_NAME = "backend";
 
-    private GitReviewNotesManager notesManager;
+    private OrphanBranchReviewManager notesManager;
     private ReviewerManager reviewerManager;
 
     @BeforeEach
     void setUp() {
-        notesManager = mock(GitReviewNotesManager.class);
-        ReviewNotesManagerFactory factory = _ -> notesManager;
+        notesManager = mock(OrphanBranchReviewManager.class);
+        ReviewBranchManagerFactory factory = _ -> notesManager;
         reviewerManager = new ReviewerManager(factory);
 
         when(notesManager.writeReviewer(anyString(), anyString(), any()))
@@ -127,11 +127,11 @@ class ReviewerManagerTests {
 
     @Test
     void addReviewer_usesFirstRepositoryAsPrimary() throws Exception {
-        GitReviewNotesManager secondNotesManager = mock(GitReviewNotesManager.class);
+        OrphanBranchReviewManager secondNotesManager = mock(OrphanBranchReviewManager.class);
         when(secondNotesManager.writeReviewer(anyString(), anyString(), any()))
             .thenReturn(CompletableFuture.completedFuture(null));
 
-        ReviewNotesManagerFactory orderedFactory = repo -> repo.equals("primary") ? notesManager : secondNotesManager;
+        ReviewBranchManagerFactory orderedFactory = repo -> repo.equals("primary") ? notesManager : secondNotesManager;
         ReviewerManager orderedManager = new ReviewerManager(orderedFactory);
 
         orderedManager.addReviewer(REVIEW_ID, REVIEWER_NAME, List.of("primary", "secondary")).get(1, TimeUnit.SECONDS);

@@ -2,6 +2,7 @@ package com.kalynx.serverlessreviewtool.ui.mainpanels;
 
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.git.Git;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewItemManager;
 import com.kalynx.serverlessreviewtool.managers.UserManager;
@@ -29,28 +30,28 @@ import java.util.function.Consumer;
  * new tabs can be added via the "+" button at the far right of the tab bar,
  * each with its own filter configuration.
  */
-public class ReviewSelectionPanel extends ThemedPanel implements Refreshable {
+public class ReviewSelectionPanel extends ThemedPanel {
     private static final Logger LOGGER = LoggerFactory.getLogger(ReviewSelectionPanel.class);
 
     private final ReviewTabsPanel reviewTabsPanel;
     private final ReviewFormModels reviewFormModels;
     private final RepositoryManager repositoryManager;
-    private final ReviewItemManager reviewItemManager;
     private final Git git;
+    private final ReviewBranchManagerFactory branchManagerFactory;
 
     private final ThemedButton createReviewButton = new ThemedButton("Create Review");
 
     public ReviewSelectionPanel(RepositoryManager repositoryManager,
-                                ReviewItemManager reviewItemManager,
                                 ReviewSelectionPanelModel reviewSelectionPanelModel,
                                 ReviewFormModels reviewFormModels,
                                 Git git,
                                 SettingsManager settingsManager,
-                                UserManager userManager) {
+                                UserManager userManager,
+                                ReviewBranchManagerFactory branchManagerFactory) {
         this.reviewFormModels = reviewFormModels;
         this.repositoryManager = repositoryManager;
-        this.reviewItemManager = reviewItemManager;
         this.git = git;
+        this.branchManagerFactory = branchManagerFactory;
         this.reviewTabsPanel = new ReviewTabsPanel(reviewSelectionPanelModel, settingsManager, repositoryManager, userManager);
         configureLayout();
         configureActions();
@@ -84,31 +85,9 @@ public class ReviewSelectionPanel extends ThemedPanel implements Refreshable {
             SwingUtilities.getWindowAncestor(this),
             reviewFormModels,
             repositoryManager,
-            git
+            git,
+            branchManagerFactory
         );
         dialog.setVisible(true);
-
-        if (dialog.isConfirmed()) {
-            onRefresh();
-        }
-    }
-
-    /**
-     * Called when the panel is shown in the MainFrame.
-     */
-    public void onPanelShown() {
-        onRefresh();
-    }
-
-    @Override
-    public void onRefresh() {
-        LoadingStateManager.getInstance().startLoading("review-refresh");
-        reviewItemManager.refresh()
-            .whenComplete((_, error) -> {
-                LoadingStateManager.getInstance().stopLoading("review-refresh");
-                if (error != null) {
-                    LOGGER.error("Error refreshing reviews", error);
-                }
-            });
     }
 }

@@ -3,6 +3,7 @@ package com.kalynx.serverlessreviewtool.ui;
 import com.kalynx.lwdi.DI;
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.git.Git;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
@@ -19,7 +20,6 @@ import com.kalynx.swingtheme.themedcomponents.ThemedFrame;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.swingtheme.theme.icons.AppIcon;
 import com.kalynx.swingtheme.theme.icons.RefreshIcon;
-import com.kalynx.serverlessreviewtool.ui.mainpanels.GitNotesDebugPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.LoginPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.LogsPanel;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.ReviewPanel;
@@ -50,7 +50,6 @@ public class MainFrame extends ThemedFrame {
     private static final int PRIORITY_REVIEW_CODE = 20;
     private static final int PRIORITY_SETTINGS = 30;
     private static final int PRIORITY_LOGS = 40;
-    private static final int PRIORITY_DEBUG = 70;
     private static final int PRIORITY_HELP = 80;
     private static final int PRIORITY_LOGOUT = 90;
 
@@ -64,6 +63,7 @@ public class MainFrame extends ThemedFrame {
     private final ReviewPanelModel reviewPanelModel;
     private final UserManager userManager;
     private final Git git;
+    private final ReviewBranchManagerFactory branchManagerFactory;
 
     private LoginPanel loginPanel;
     private ReviewSelectionPanel reviewSelectionPanel;
@@ -72,7 +72,6 @@ public class MainFrame extends ThemedFrame {
     private SettingsPanel settingsPanel;
     private LogsPanel logsPanel;
     private HelpPanel helpPanel;
-    private GitNotesDebugPanel gitNotesDebugPanel;
     private ThemedPanel currentPanel;
     private QuickButton refreshButton;
 
@@ -89,7 +88,8 @@ public class MainFrame extends ThemedFrame {
             ReviewSelectionPanelModel reviewSelectionPanelModel,
             ReviewPanelModel reviewPanelModel,
             UserManager userManager,
-            Git git) {
+            Git git,
+            ReviewBranchManagerFactory branchManagerFactory) {
         super("Serverless Review Tool",
               settingsManager.getSettings().getWindow().getDefaultWidth(),
               settingsManager.getSettings().getWindow().getDefaultHeight());
@@ -103,6 +103,7 @@ public class MainFrame extends ThemedFrame {
         this.reviewPanelModel = reviewPanelModel;
         this.userManager = userManager;
         this.git = git;
+        this.branchManagerFactory = branchManagerFactory;
         setApplicationIcon(AppIcon.createIconImages());
         initializePanels();
         setupMenuItems();
@@ -168,8 +169,8 @@ public class MainFrame extends ThemedFrame {
         loginPanel = new LoginPanel(settingsManager, pluginManager);
         loginPanel.setOnLoginSuccess(this::showReviewPanel);
 
-        reviewSelectionPanel = new ReviewSelectionPanel(repositoryManager, reviewItemManager, reviewSelectionPanelModel, reviewFormModels, git, settingsManager, userManager);
-        reviewPanel = new ReviewPanel(settingsManager, reviewContextManager, repositoryManager, reviewFormModels, reviewPanelModel, git, pluginManager);
+        reviewSelectionPanel = new ReviewSelectionPanel(repositoryManager, reviewSelectionPanelModel, reviewFormModels, git, settingsManager, userManager, branchManagerFactory);
+        reviewPanel = new ReviewPanel(settingsManager, reviewContextManager, repositoryManager, reviewFormModels, reviewPanelModel, git, pluginManager, branchManagerFactory);
         swipeActionPanel = new SwipeActionPanel(reviewPanel);
 
         swipeActionPanel.setOnApprove(reviewPanel::handleApprove);
@@ -180,7 +181,6 @@ public class MainFrame extends ThemedFrame {
         settingsPanel = new SettingsPanel(settingsManager, pluginManager);
         logsPanel = new LogsPanel();
         helpPanel = new HelpPanel();
-        gitNotesDebugPanel = new GitNotesDebugPanel(git, repositoryManager);
 
         ConsoleLogBridge.attachLogsPanel(logsPanel);
 
@@ -200,7 +200,6 @@ public class MainFrame extends ThemedFrame {
         registeredEntries.add(new NavEntry("Review Code", PRIORITY_REVIEW_CODE, this::showCodeReviewPanel));
         registeredEntries.add(new NavEntry("Settings",    PRIORITY_SETTINGS,    this::showSettingsPanel));
         registeredEntries.add(new NavEntry("Logs",        PRIORITY_LOGS,        this::showLogsPanel));
-        registeredEntries.add(new NavEntry("Notes Inspector", PRIORITY_DEBUG,   this::showNotesInspectorPanel));
         registeredEntries.add(new NavEntry("Help",        PRIORITY_HELP,        this::showHelpPanel));
         registeredEntries.add(new NavEntry("Log Out",     PRIORITY_LOGOUT,      this::onLogout,        settingsManager::isLoggedIn));
 
@@ -277,15 +276,6 @@ public class MainFrame extends ThemedFrame {
         setWindowTitle("Serverless Review Tool - Logs");
     }
 
-    private void showNotesInspectorPanel() {
-        if (needsLogin()) {
-            showLoginPanel();
-            return;
-        }
-        switchPanel(gitNotesDebugPanel);
-        setWindowTitle("Serverless Review Tool - Notes Inspector");
-    }
-
     private void showHelpPanel() {
         if (needsLogin()) {
             showLoginPanel();
@@ -329,9 +319,6 @@ public class MainFrame extends ThemedFrame {
         updateRefreshButtonVisibility();
         revalidate();
         repaint();
-        if (newPanel instanceof ReviewSelectionPanel) {
-            ((ReviewSelectionPanel) newPanel).onPanelShown();
-        }
     }
 
     private void updateRefreshButtonVisibility() {

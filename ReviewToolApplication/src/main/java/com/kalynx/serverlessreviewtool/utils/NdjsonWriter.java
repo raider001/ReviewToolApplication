@@ -6,6 +6,7 @@ import com.kalynx.serverlessreviewtool.models.review.StreamEntry;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -47,6 +48,14 @@ public class NdjsonWriter {
                 writer.newLine();
             }
         }
+    }
+
+    /**
+     * Serialises a single {@link StreamEntry} to a UTF-8 NDJSON line (no trailing newline).
+     * Use when you need bytes for in-memory storage (e.g. git blob), not a filesystem write.
+     */
+    public static <T> byte[] toBytes(StreamEntry<T> entry) {
+        return GSON.toJson(entry).getBytes(StandardCharsets.UTF_8);
     }
 
     public static <T> void write(Path filePath, List<StreamEntry<T>> entries) throws IOException {

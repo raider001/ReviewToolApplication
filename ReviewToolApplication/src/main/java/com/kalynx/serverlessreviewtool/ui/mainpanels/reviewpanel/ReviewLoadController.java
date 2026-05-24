@@ -263,7 +263,7 @@ public class ReviewLoadController {
                                                   String reviewId) {
         long commitsStart = System.nanoTime();
         CompletableFuture<Void> commits = fileDiffManager
-            .loadCommitsForReview(primaryRepo.getName(), remoteBranch, 1000)
+            .loadCommitsForReview(primaryRepo.getName(), primaryRepo.getUrl(), remoteBranch, 1000)
             .thenRun(() -> LOGGER.info("TIMING [{}] loadCommitsForReview ({}): {}ms",
                 reviewId, primaryRepo.getName(), elapsedMs(commitsStart)));
 

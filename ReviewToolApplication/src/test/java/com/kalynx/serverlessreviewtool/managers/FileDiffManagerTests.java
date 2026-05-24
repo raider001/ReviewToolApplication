@@ -29,6 +29,7 @@ import static org.mockito.Mockito.when;
 class FileDiffManagerTests {
 
     private static final String REPO = "my-repo";
+    private static final String REMOTE_URL = "https://example.com/my-repo.git";
 
     private Git git;
     private CodeViewerModel model;
@@ -43,10 +44,10 @@ class FileDiffManagerTests {
 
     @Test
     void loadCommitsForReview_gitReturnsEmptyList_setsEmptyAvailableCommits() throws Exception {
-        when(git.listCommits(eq(REPO), anyString(), anyInt()))
+        when(git.listCommitsRemote(eq(REMOTE_URL), anyString(), anyInt()))
             .thenReturn(CompletableFuture.completedFuture(List.of()));
 
-        diffManager.loadCommitsForReview(REPO, "main", 50).get(2, TimeUnit.SECONDS);
+        diffManager.loadCommitsForReview(REPO, REMOTE_URL, "main", 50).get(2, TimeUnit.SECONDS);
 
         assertTrue(model.availableCommits.getValue().isEmpty());
     }
@@ -54,24 +55,21 @@ class FileDiffManagerTests {
     @Test
     void loadCommitsForReview_withCommits_setsAvailableCommits() throws Exception {
         String commitFormat = "abc1234|Author One|2024-01-01|Fix thing";
-        String parentRef = "abc1234^";
 
-        when(git.listCommits(eq(REPO), anyString(), anyInt()))
+        when(git.listCommitsRemote(eq(REMOTE_URL), anyString(), anyInt()))
             .thenReturn(CompletableFuture.completedFuture(List.of(commitFormat)));
-        when(git.executeAsync(eq(REPO), eq("rev-parse"), eq(parentRef)))
-            .thenReturn(CompletableFuture.failedFuture(new RuntimeException("no parent")));
 
-        diffManager.loadCommitsForReview(REPO, "main", 50).get(2, TimeUnit.SECONDS);
+        diffManager.loadCommitsForReview(REPO, REMOTE_URL, "main", 50).get(2, TimeUnit.SECONDS);
 
         assertFalse(model.availableCommits.getValue().isEmpty());
     }
 
     @Test
     void loadCommitsForReview_malformedCommitLine_skipped() throws Exception {
-        when(git.listCommits(eq(REPO), anyString(), anyInt()))
+        when(git.listCommitsRemote(eq(REMOTE_URL), anyString(), anyInt()))
             .thenReturn(CompletableFuture.completedFuture(List.of("malformed-no-pipes")));
 
-        diffManager.loadCommitsForReview(REPO, "main", 50).get(2, TimeUnit.SECONDS);
+        diffManager.loadCommitsForReview(REPO, REMOTE_URL, "main", 50).get(2, TimeUnit.SECONDS);
 
         assertTrue(model.availableCommits.getValue().isEmpty());
     }
@@ -79,29 +77,25 @@ class FileDiffManagerTests {
     @Test
     void loadCommitsForReview_withParent_putsParentInAvailableCommits() throws Exception {
         String commitLine = "abc1234|Dev|2024-01-01|Message";
-        String parentHash = "parent567890";
-        String parentLine = parentHash + "|Dev|2024-01-01|Parent commit";
+        String parentLine = "parent567|Dev|2024-01-01|Parent commit";
 
-        when(git.listCommits(eq(REPO), anyString(), anyInt()))
-            .thenReturn(CompletableFuture.completedFuture(List.of(commitLine)));
-        when(git.executeAsync(eq(REPO), eq("rev-parse"), anyString()))
-            .thenReturn(CompletableFuture.completedFuture(parentHash));
-        when(git.executeAsync(eq(REPO), eq("show"), eq("-s"),
-                eq("--format=%H|%an|%ad|%s"), eq("--date=short"), eq(parentHash)))
-            .thenReturn(CompletableFuture.completedFuture(parentLine));
+        // maxCommits=1 → requests 2; second entry is baseline
+        when(git.listCommitsRemote(eq(REMOTE_URL), anyString(), anyInt()))
+            .thenReturn(CompletableFuture.completedFuture(List.of(commitLine, parentLine)));
 
-        diffManager.loadCommitsForReview(REPO, "main", 50).get(2, TimeUnit.SECONDS);
+        diffManager.loadCommitsForReview(REPO, REMOTE_URL, "main", 1).get(2, TimeUnit.SECONDS);
 
         List<Commit> commits = model.availableCommits.getValue();
         assertTrue(commits.stream().anyMatch(c -> c.getHash().startsWith("abc1234")));
+        assertTrue(commits.stream().anyMatch(c -> c.getHash().startsWith("parent567")));
     }
 
     @Test
     void loadCommitsForReview_gitFails_setsEmptyAvailableCommits() throws Exception {
-        when(git.listCommits(eq(REPO), anyString(), anyInt()))
+        when(git.listCommitsRemote(eq(REMOTE_URL), anyString(), anyInt()))
             .thenReturn(CompletableFuture.failedFuture(new RuntimeException("git error")));
 
-        diffManager.loadCommitsForReview(REPO, "main", 50).get(2, TimeUnit.SECONDS);
+        diffManager.loadCommitsForReview(REPO, REMOTE_URL, "main", 50).get(2, TimeUnit.SECONDS);
 
         assertNotNull(model.availableCommits.getValue());
         assertTrue(model.availableCommits.getValue().isEmpty());

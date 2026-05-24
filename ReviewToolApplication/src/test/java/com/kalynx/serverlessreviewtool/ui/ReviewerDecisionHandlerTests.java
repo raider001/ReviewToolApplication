@@ -1,7 +1,8 @@
 package com.kalynx.serverlessreviewtool.ui;
 
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
-import com.kalynx.serverlessreviewtool.git.Git;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.managers.ReviewChangeSetManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewCommentManager;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
@@ -220,8 +221,8 @@ class ReviewerDecisionHandlerTests {
         private int metadataOnlyCallCount;
 
         StubContextManager() {
-            super(mock(Git.class), mock(RepositoryManager.class),
-                mock(ReviewCommentManager.class), mock(ReviewChangeSetManager.class));
+            super(mock(RepositoryManager.class), mock(ReviewCommentManager.class),
+                mock(ReviewChangeSetManager.class), _ -> mock(OrphanBranchReviewManager.class));
         }
 
         @Override

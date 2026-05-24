@@ -1,8 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.Git;
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
@@ -26,7 +25,7 @@ import java.util.stream.Collectors;
  * - Maintain the current ReviewContext and notify listeners when it changes
  * - Delegate metadata loading to ReviewMetadataLoader
  * - Delegate reviewer operations to ReviewerManager
- * - Persist review metadata changes via git notes
+ * - Persist review metadata changes via the orphan branch store
  * - Provide comment and file-change delegation to ReviewCommentManager and ReviewChangeSetManager
  */
 public class ReviewContextManager {
@@ -34,7 +33,7 @@ public class ReviewContextManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(ReviewContextManager.class);
 
     private ReviewContext currentReviewContext;
-    private final ReviewNotesManagerFactory notesManagerFactory;
+    private final ReviewBranchManagerFactory branchManagerFactory;
     private final ReviewCommentManager commentManager;
     private final ReviewChangeSetManager changeSetManager;
     private final ReviewMetadataLoader metadataLoader;
@@ -49,30 +48,25 @@ public class ReviewContextManager {
      * @param commentManager the comment manager for comment I/O
      * @param changeSetManager the change set manager for file/commit operations
      */
-    public ReviewContextManager(Git git, RepositoryManager repositoryManager,
-                                ReviewCommentManager commentManager, ReviewChangeSetManager changeSetManager) {
-        this.notesManagerFactory = repo -> new GitReviewNotesManager(git, repo);
+    public ReviewContextManager(RepositoryManager repositoryManager,
+                                ReviewCommentManager commentManager, ReviewChangeSetManager changeSetManager,
+                                ReviewBranchManagerFactory branchManagerFactory) {
+        this.branchManagerFactory = branchManagerFactory;
         this.commentManager = commentManager;
         this.changeSetManager = changeSetManager;
-        this.metadataLoader = new ReviewMetadataLoader(notesManagerFactory, repositoryManager, commentManager, this::getReviewContext);
-        this.reviewerManager = new ReviewerManager(notesManagerFactory);
+        this.metadataLoader = new ReviewMetadataLoader(branchManagerFactory, repositoryManager, commentManager, this::getReviewContext);
+        this.reviewerManager = new ReviewerManager(branchManagerFactory);
     }
 
     /**
      * Package-private constructor for unit testing, accepting all collaborators directly.
-     *
-     * @param notesManagerFactory the notes manager factory
-     * @param commentManager the comment manager
-     * @param changeSetManager the change set manager
-     * @param metadataLoader the metadata loader
-     * @param reviewerManager the reviewer manager
      */
-    ReviewContextManager(ReviewNotesManagerFactory notesManagerFactory,
+    ReviewContextManager(ReviewBranchManagerFactory branchManagerFactory,
                          ReviewCommentManager commentManager,
                          ReviewChangeSetManager changeSetManager,
                          ReviewMetadataLoader metadataLoader,
                          ReviewerManager reviewerManager) {
-        this.notesManagerFactory = notesManagerFactory;
+        this.branchManagerFactory = branchManagerFactory;
         this.commentManager = commentManager;
         this.changeSetManager = changeSetManager;
         this.metadataLoader = metadataLoader;
@@ -294,7 +288,7 @@ public class ReviewContextManager {
         }
 
         Repository primaryRepo = reviewContext.repositories.getFirst();
-        GitReviewNotesManager notesManager = notesManagerFactory.create(primaryRepo.getName());
+        OrphanBranchReviewManager notesManager = branchManagerFactory.create(primaryRepo.getName());
         String editor = reviewContext.author != null ? reviewContext.author : "system";
 
         List<Map.Entry<String, com.kalynx.serverlessreviewtool.models.review.ReviewerData>> reviewerEntries = new ArrayList<>();
@@ -345,7 +339,7 @@ public class ReviewContextManager {
     }
 
     private CompletableFuture<Void> saveRepositoryActiveStates(
-            GitReviewNotesManager notesManager, String reviewId, String editor,
+            OrphanBranchReviewManager notesManager, String reviewId, String editor,
             List<Repository> newRepositories, List<Repository> previousRepositories) {
 
         Set<String> newRepoNames = newRepositories.stream()
@@ -467,10 +461,9 @@ public class ReviewContextManager {
         String baseBranch = reviewContext.getBaseBranch() != null ? reviewContext.getBaseBranch() : "";
         String editor = reviewContext.author != null ? reviewContext.author : "system";
 
-        GitReviewNotesManager primaryManager = notesManagerFactory.create(primaryRepoName);
         List<CompletableFuture<Void>> futures = newRepoNames.stream()
-            .map(repoName -> primaryManager.createSecondaryReviewReference(
-                repoName, reviewContext.reviewId, editor, List.of(), branch, baseBranch))
+            .map(repoName -> branchManagerFactory.create(repoName)
+                .createSecondaryReviewReference(reviewContext.reviewId, editor, List.of(), branch, baseBranch))
             .toList();
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
     }

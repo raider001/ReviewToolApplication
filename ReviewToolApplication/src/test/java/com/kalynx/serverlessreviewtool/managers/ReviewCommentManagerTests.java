@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.GitReviewNotesManager;
-import com.kalynx.serverlessreviewtool.git.ReviewNotesManagerFactory;
+import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.ReviewComment;
 import com.kalynx.serverlessreviewtool.models.review.StreamEntry;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,13 +31,13 @@ class ReviewCommentManagerTests {
     private static final String REVIEW_ID = "test-review-001";
     private static final String REPO_NAME = "my-repo";
 
-    private GitReviewNotesManager notesManager;
+    private OrphanBranchReviewManager notesManager;
     private ReviewCommentManager commentManager;
 
     @BeforeEach
     void setUp() {
-        notesManager = mock(GitReviewNotesManager.class);
-        ReviewNotesManagerFactory factory = _ -> notesManager;
+        notesManager = mock(OrphanBranchReviewManager.class);
+        ReviewBranchManagerFactory factory = _ -> notesManager;
         commentManager = new ReviewCommentManager(factory);
 
         when(notesManager.writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any()))
@@ -131,10 +131,10 @@ class ReviewCommentManagerTests {
     @Test
     void loadCommentsFromKnownRepository_withOneComment_loadsAndAssembles() throws Exception {
         String commentId = UUID.randomUUID().toString();
-        GitReviewNotesManager.CommentMetadata meta = new GitReviewNotesManager.CommentMetadata("Foo.java", 7, 7, null);
-        GitReviewNotesManager.CommentTextData text = new GitReviewNotesManager.CommentTextData("hello world", null, "comment");
-        StreamEntry<GitReviewNotesManager.CommentMetadata> metaEntry = new StreamEntry<>("id1", Instant.now(), "alice", meta);
-        StreamEntry<GitReviewNotesManager.CommentTextData> textEntry = new StreamEntry<>("id2", Instant.now(), "alice", text);
+        OrphanBranchReviewManager.CommentMetadata meta = new OrphanBranchReviewManager.CommentMetadata("Foo.java", 7, 7, null);
+        OrphanBranchReviewManager.CommentTextData text = new OrphanBranchReviewManager.CommentTextData("hello world", null, "comment");
+        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry = new StreamEntry<>("id1", Instant.now(), "alice", meta);
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry = new StreamEntry<>("id2", Instant.now(), "alice", text);
 
         when(notesManager.listCommentIds(REVIEW_ID)).thenReturn(CompletableFuture.completedFuture(List.of(commentId)));
         when(notesManager.readCommentMetadata(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
@@ -156,10 +156,10 @@ class ReviewCommentManagerTests {
     void loadCommentsFromKnownRepository_withMultipleComments_loadsAll() throws Exception {
         String id1 = UUID.randomUUID().toString();
         String id2 = UUID.randomUUID().toString();
-        GitReviewNotesManager.CommentMetadata meta = new GitReviewNotesManager.CommentMetadata("X.java", 1, 1, null);
-        GitReviewNotesManager.CommentTextData text = new GitReviewNotesManager.CommentTextData("ok", null, "comment");
-        StreamEntry<GitReviewNotesManager.CommentMetadata> metaEntry = new StreamEntry<>("m1", Instant.now(), "dev", meta);
-        StreamEntry<GitReviewNotesManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "dev", text);
+        OrphanBranchReviewManager.CommentMetadata meta = new OrphanBranchReviewManager.CommentMetadata("X.java", 1, 1, null);
+        OrphanBranchReviewManager.CommentTextData text = new OrphanBranchReviewManager.CommentTextData("ok", null, "comment");
+        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry = new StreamEntry<>("m1", Instant.now(), "dev", meta);
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "dev", text);
 
         when(notesManager.listCommentIds(REVIEW_ID)).thenReturn(CompletableFuture.completedFuture(List.of(id1, id2)));
         when(notesManager.readCommentMetadata(eq(REVIEW_ID), anyString())).thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
@@ -175,8 +175,8 @@ class ReviewCommentManagerTests {
     @Test
     void loadCommentsFromKnownRepository_commentMissingMetadata_skipsNullEntry() throws Exception {
         String commentId = UUID.randomUUID().toString();
-        GitReviewNotesManager.CommentTextData text = new GitReviewNotesManager.CommentTextData("text", null, "comment");
-        StreamEntry<GitReviewNotesManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "dev", text);
+        OrphanBranchReviewManager.CommentTextData text = new OrphanBranchReviewManager.CommentTextData("text", null, "comment");
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "dev", text);
 
         when(notesManager.listCommentIds(REVIEW_ID)).thenReturn(CompletableFuture.completedFuture(List.of(commentId)));
         when(notesManager.readCommentMetadata(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of()));
@@ -219,13 +219,13 @@ class ReviewCommentManagerTests {
     @Test
     void loadCommentsFromKnownRepository_withStatusEntryResolved_marksCommentResolved() throws Exception {
         String commentId = UUID.randomUUID().toString();
-        GitReviewNotesManager.CommentMetadata meta = new GitReviewNotesManager.CommentMetadata("X.java", 1, 1, null);
-        GitReviewNotesManager.CommentTextData text = new GitReviewNotesManager.CommentTextData("text", null, "review");
-        GitReviewNotesManager.CommentStatusData status = new GitReviewNotesManager.CommentStatusData(true, true);
+        OrphanBranchReviewManager.CommentMetadata meta = new OrphanBranchReviewManager.CommentMetadata("X.java", 1, 1, null);
+        OrphanBranchReviewManager.CommentTextData text = new OrphanBranchReviewManager.CommentTextData("text", null, "review");
+        OrphanBranchReviewManager.CommentStatusData status = new OrphanBranchReviewManager.CommentStatusData(true, true);
 
-        StreamEntry<GitReviewNotesManager.CommentMetadata> metaEntry = new StreamEntry<>("m1", Instant.now(), "alice", meta);
-        StreamEntry<GitReviewNotesManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "alice", text);
-        StreamEntry<GitReviewNotesManager.CommentStatusData> statusEntry = new StreamEntry<>("s1", Instant.now(), "bob", status);
+        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry = new StreamEntry<>("m1", Instant.now(), "alice", meta);
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "alice", text);
+        StreamEntry<OrphanBranchReviewManager.CommentStatusData> statusEntry = new StreamEntry<>("s1", Instant.now(), "bob", status);
 
         when(notesManager.listCommentIds(REVIEW_ID)).thenReturn(CompletableFuture.completedFuture(List.of(commentId)));
         when(notesManager.readCommentMetadata(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
@@ -243,13 +243,13 @@ class ReviewCommentManagerTests {
     @Test
     void loadCommentsFromKnownRepository_withStatusEntryUnresolved_marksCommentUnresolved() throws Exception {
         String commentId = UUID.randomUUID().toString();
-        GitReviewNotesManager.CommentMetadata meta = new GitReviewNotesManager.CommentMetadata("X.java", 1, 1, null);
-        GitReviewNotesManager.CommentTextData text = new GitReviewNotesManager.CommentTextData("text", null, "review");
-        GitReviewNotesManager.CommentStatusData status = new GitReviewNotesManager.CommentStatusData(true, false);
+        OrphanBranchReviewManager.CommentMetadata meta = new OrphanBranchReviewManager.CommentMetadata("X.java", 1, 1, null);
+        OrphanBranchReviewManager.CommentTextData text = new OrphanBranchReviewManager.CommentTextData("text", null, "review");
+        OrphanBranchReviewManager.CommentStatusData status = new OrphanBranchReviewManager.CommentStatusData(true, false);
 
-        StreamEntry<GitReviewNotesManager.CommentMetadata> metaEntry = new StreamEntry<>("m1", Instant.now(), "alice", meta);
-        StreamEntry<GitReviewNotesManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "alice", text);
-        StreamEntry<GitReviewNotesManager.CommentStatusData> statusEntry = new StreamEntry<>("s1", Instant.now(), "bob", status);
+        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry = new StreamEntry<>("m1", Instant.now(), "alice", meta);
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "alice", text);
+        StreamEntry<OrphanBranchReviewManager.CommentStatusData> statusEntry = new StreamEntry<>("s1", Instant.now(), "bob", status);
 
         when(notesManager.listCommentIds(REVIEW_ID)).thenReturn(CompletableFuture.completedFuture(List.of(commentId)));
         when(notesManager.readCommentMetadata(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));

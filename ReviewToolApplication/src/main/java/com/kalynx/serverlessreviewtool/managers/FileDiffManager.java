@@ -29,16 +29,18 @@ public class FileDiffManager {
     }
 
     /**
-     * Loads commits for a review from the specified repository and branch.
-     * Updates the model with available commits and sets initial start/end commit range.
-     * For a full branch review, defaults to the parent of the oldest branch commit as the baseline.
+     * Loads commits for a review directly from the remote repository.
+     * Requests maxCommits+1 commits so the final entry serves as the baseline
+     * (parent of the oldest visible branch commit) without needing a local clone.
      *
-     * @param repositoryName name of the repository
-     * @param branch branch name to load commits from
-     * @param maxCommits maximum number of commits to load
+     * @param repositoryName name of the repository (for logging)
+     * @param remoteUrl      remote git URL to query
+     * @param branch         branch name to load commits from
+     * @param maxCommits     maximum number of branch commits to show
      * @return future that completes when commits are loaded
      */
-    public CompletableFuture<Void> loadCommitsForReview(String repositoryName, String branch, int maxCommits) {
+    public CompletableFuture<Void> loadCommitsForReview(String repositoryName, String remoteUrl,
+                                                         String branch, int maxCommits) {
         if (branch == null || branch.isBlank()) {
             logger.warn("Cannot load commits for repository {}: branch ref is blank", repositoryName);
             codeViewerModel.setAvailableCommits(new ArrayList<>());
@@ -47,38 +49,47 @@ public class FileDiffManager {
         logger.info("Loading commits for repository: {}, branch: {}, max: {}", repositoryName, branch, maxCommits);
         long start = System.nanoTime();
 
-        return git.listCommits(repositoryName, branch, maxCommits)
-            .thenApply(this::parseCommits)
-            .thenCompose(commits -> {
-                logger.info("TIMING loadCommitsForReview git.listCommits (repo={}, branch={}): {}ms",
+        return git.listCommitsRemote(remoteUrl, branch, maxCommits + 1)
+            .thenApply(rawLines -> {
+                logger.info("TIMING loadCommitsForReview git.listCommitsRemote (repo={}, branch={}): {}ms",
                     repositoryName, branch, elapsedMs(start));
-                logger.info("Loaded {} commits", commits.size());
-                if (commits.isEmpty()) {
+                return rawLines;
+            })
+            .thenApply(this::parseCommits)
+            .thenCompose(allCommits -> {
+                logger.info("Loaded {} commits (including potential baseline)", allCommits.size());
+                if (allCommits.isEmpty()) {
                     logger.warn("No commits found for repository: {}, branch: {}", repositoryName, branch);
                     codeViewerModel.setAvailableCommits(new ArrayList<>());
                     return CompletableFuture.completedFuture(null);
                 }
 
-                Commit endCommit = commits.getFirst();
-                return resolveBaselineCommit(repositoryName, commits)
-                    .thenAccept(startCommit -> {
-                        List<Commit> commitsForModel = new ArrayList<>(commits);
-                        if (startCommit != null && commitsForModel.stream().noneMatch(c -> c.getHash().equals(startCommit.getHash()))) {
-                            commitsForModel.add(startCommit);
-                        }
-                        codeViewerModel.setAvailableCommits(commitsForModel);
+                // If we received maxCommits+1 entries, the last one is the baseline
+                // (parent of the branch); otherwise the oldest branch commit is the baseline.
+                boolean hasSeparateBaseline = allCommits.size() > maxCommits;
+                List<Commit> branchCommits = hasSeparateBaseline
+                        ? new ArrayList<>(allCommits.subList(0, maxCommits))
+                        : new ArrayList<>(allCommits);
+                Commit baselineCommit = allCommits.getLast();
+                Commit endCommit = branchCommits.getFirst();
 
-                        if (codeViewerModel.startCommit.getValue() == null || codeViewerModel.endCommit.getValue() == null) {
-                            Commit baselineCommit = startCommit != null ? startCommit : commits.getLast();
-                            logger.info("Setting initial commit range: start={} (baseline), end={} (latest)",
-                                baselineCommit.getShortHash(), endCommit.getShortHash());
-                            codeViewerModel.setCommitRange(baselineCommit, endCommit);
-                        } else {
-                            logger.info("Preserving existing commit range: start={}, end={}",
-                                codeViewerModel.startCommit.getValue().getShortHash(),
-                                codeViewerModel.endCommit.getValue().getShortHash());
-                        }
-                    });
+                List<Commit> commitsForModel = new ArrayList<>(branchCommits);
+                if (hasSeparateBaseline) {
+                    commitsForModel.add(baselineCommit);
+                }
+                codeViewerModel.setAvailableCommits(commitsForModel);
+
+                if (codeViewerModel.startCommit.getValue() == null || codeViewerModel.endCommit.getValue() == null) {
+                    logger.info("Setting initial commit range: start={} (baseline), end={} (latest)",
+                        baselineCommit.getShortHash(), endCommit.getShortHash());
+                    codeViewerModel.setCommitRange(baselineCommit, endCommit);
+                } else {
+                    logger.info("Preserving existing commit range: start={}, end={}",
+                        codeViewerModel.startCommit.getValue().getShortHash(),
+                        codeViewerModel.endCommit.getValue().getShortHash());
+                }
+
+                return CompletableFuture.completedFuture(null);
             })
             .exceptionally(error -> {
                 logger.error("Failed to load commits: {}", error.getMessage(), error);
