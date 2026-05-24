@@ -132,10 +132,10 @@ public class IndexerEventSource {
             .build();
         HttpResponse<Stream<String>> response = http.send(request, HttpResponse.BodyHandlers.ofLines());
         if (response.statusCode() != 200) {
-            LOGGER.warn("Indexer SSE stream returned {}", response.statusCode());
+            LOGGER.warn("[SSE] Connection failed — indexer returned HTTP {}", response.statusCode());
             return;
         }
-        LOGGER.info("Connected to indexer SSE stream at {}", indexerUrl);
+        LOGGER.info("[SSE] Connected to indexer SSE stream at {}", indexerUrl);
         parseSseStream(response.body(), listener, self);
     }
 
@@ -155,17 +155,26 @@ public class IndexerEventSource {
     }
 
     private void dispatchFrame(SseFrame frame, Consumer<ReviewListUpdate[]> listener) {
+        LOGGER.info("[SSE] Frame received: eventType='{}' dataLength={}",
+                frame.eventType, frame.data != null ? frame.data.length() : 0);
         ReviewUpdateType type = mapEventType(frame.eventType);
         if (type == null) {
-            LOGGER.debug("Ignoring unrecognised SSE event type '{}'", frame.eventType);
+            LOGGER.info("[SSE] Ignoring unrecognised event type '{}'", frame.eventType);
             return;
         }
         try {
             JsonObject obj = JsonParser.parseString(frame.data).getAsJsonObject();
-            String reviewId    = getString(obj, "review_id");
-            String repository  = getString(obj, "repository");
-            String repoUrl     = getString(obj, "repository_url");
-            String branchName  = getString(obj, "branch_name");
+            String reviewId   = getString(obj, "reviewId");
+            String repository = getString(obj, "repository");
+
+            // repository_url and branch_name are nested inside the payload map
+            JsonObject payload = obj.has("payload") && obj.get("payload").isJsonObject()
+                    ? obj.getAsJsonObject("payload") : new JsonObject();
+            String repoUrl    = getString(payload, "repository_url");
+            String branchName = getString(payload, "branch_name");
+
+            LOGGER.info("[SSE] Dispatching update: type='{}' reviewId='{}' repo='{}' repoUrl='{}' branch='{}'",
+                    type, reviewId, repository, repoUrl, branchName);
             ReviewListUpdate update = new ReviewListUpdate(
                 UUID.randomUUID().toString(), Instant.now(), type,
                 reviewId, repository,
@@ -272,11 +281,12 @@ public class IndexerEventSource {
     private ReviewUpdateType mapEventType(String eventType) {
         if (eventType == null) return null;
         return switch (eventType) {
-            case "review.created" -> ReviewUpdateType.CREATED;
-            case "review.updated" -> ReviewUpdateType.UPDATED;
-            case "branch.updated" -> ReviewUpdateType.UPDATED;
-            case "branch.deleted" -> ReviewUpdateType.DELETED;
-            default               -> null;
+            case "REVIEW_CREATED"                                                     -> ReviewUpdateType.CREATED;
+            case "REVIEW_UPDATED", "REVIEW_CLOSED",
+                 "REVIEW_COMMENT_ADDED", "REVIEW_COMMENT_UPDATED"                    -> ReviewUpdateType.UPDATED;
+            case "BRANCH_UPDATED"                                                     -> ReviewUpdateType.UPDATED;
+            case "BRANCH_DELETED"                                                     -> ReviewUpdateType.DELETED;
+            default                                                                   -> null;
         };
     }
 

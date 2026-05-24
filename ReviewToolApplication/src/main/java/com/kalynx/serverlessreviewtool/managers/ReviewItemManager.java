@@ -177,9 +177,11 @@ public class ReviewItemManager {
 
         Arrays.stream(updates).parallel().forEach( update -> {
             if (update == null) return;
-            LOGGER.debug("Received notification update: {}", update);
+            LOGGER.info("[ReviewItemManager] applyNotificationUpdates: type='{}' reviewId='{}' repo='{}' repoUrl='{}'",
+                    update.updateType(), update.reviewId(), update.primaryRepository(), update.repositoryUrl());
             if (update.reviewId() != null && update.repositoryUrl() != null) {
-                // Targeted path: fetch only the changed review from the orphan branch.
+                LOGGER.info("[ReviewItemManager] Taking targeted path for reviewId='{}' repoUrl='{}'",
+                        update.reviewId(), update.repositoryUrl());
                 fetchSingleReview(update.reviewId(), update.repositoryUrl(),
                         update.primaryRepository(), update.updateType())
                         .exceptionally(ex -> {
@@ -187,11 +189,11 @@ public class ReviewItemManager {
                             return null;
                         });
             } else {
-                // Fallback: refresh the whole repository (no repositoryUrl in payload).
                 List<String> repos = new ArrayList<>();
                 if (update.primaryRepository() != null) repos.add(update.primaryRepository());
                 if (update.repositories() != null) repos.addAll(update.repositories());
 
+                LOGGER.info("[ReviewItemManager] Taking fallback path, refreshing repos: {}", repos);
                 repos.stream()
                         .filter(r -> r != null && !r.isBlank())
                         .distinct()
@@ -201,6 +203,7 @@ public class ReviewItemManager {
                         }));
 
                 if (repos.isEmpty()) {
+                    LOGGER.info("[ReviewItemManager] No repos in update, triggering full refresh");
                     refresh();
                 }
             }

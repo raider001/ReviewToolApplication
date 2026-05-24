@@ -61,7 +61,7 @@ public class FileDiffManager {
                 if (allCommits.isEmpty()) {
                     logger.warn("No commits found for repository: {}, branch: {}", repositoryName, branch);
                     codeViewerModel.setAvailableCommits(new ArrayList<>());
-                    return CompletableFuture.completedFuture(null);
+                    return CompletableFuture.<Void>completedFuture(null);
                 }
 
                 // If we received maxCommits+1 entries, the last one is the baseline
@@ -89,7 +89,7 @@ public class FileDiffManager {
                         codeViewerModel.endCommit.getValue().getShortHash());
                 }
 
-                return CompletableFuture.completedFuture(null);
+                return CompletableFuture.<Void>completedFuture(null);
             })
             .exceptionally(error -> {
                 logger.error("Failed to load commits: {}", error.getMessage(), error);
