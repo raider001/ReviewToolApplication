@@ -28,6 +28,7 @@
         <module>ReviewToolApplication</module>
         <module>ReviewToolCentralIndexer</module>
         <module>ReviewToolCentralIndexerPluginApi</module>
+        <module>ReviewToolCentralIndexerGui</module>
     </modules>
 
     <dependencyManagement>

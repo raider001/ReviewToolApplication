@@ -3,6 +3,7 @@ package com.kalynx.serverlessreviewtool.ui.mainpanels;
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
+import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
 import com.kalynx.serverlessreviewtool.managers.FileDiffManager;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
@@ -56,6 +57,7 @@ public class ReviewPanel extends ThemedPanel {
     private final ReviewPanelModel model;
     private final Git git;
     private final ReviewBranchManagerFactory branchManagerFactory;
+    private final ReviewCloneManager cloneManager;
 
     private final ReviewDetailPanel reviewDetailPanel;
     private final CodePanel codePanel;
@@ -79,8 +81,10 @@ public class ReviewPanel extends ThemedPanel {
      * @param repositoryManager    repository configuration
      * @param reviewFormModels     models used by the edit-review dialog
      * @param reviewPanelModel     shared panel model
-     * @param git                  git operations
+     * @param git                  git operations (orphan branch / edit review dialog)
      * @param pluginManager        plugin registry
+     * @param branchManagerFactory factory for orphan branch managers
+     * @param cloneManager         blobless clone manager for diff operations
      */
     public ReviewPanel(SettingsManager settingsManager,
                        ReviewContextManager reviewContextManager,
@@ -89,7 +93,8 @@ public class ReviewPanel extends ThemedPanel {
                        ReviewPanelModel reviewPanelModel,
                        Git git,
                        PluginManager pluginManager,
-                       ReviewBranchManagerFactory branchManagerFactory) {
+                       ReviewBranchManagerFactory branchManagerFactory,
+                       ReviewCloneManager cloneManager) {
         this.settingsManager = settingsManager;
         this.reviewContextManager = reviewContextManager;
         this.repositoryManager = repositoryManager;
@@ -97,15 +102,16 @@ public class ReviewPanel extends ThemedPanel {
         this.model = reviewPanelModel;
         this.git = git;
         this.branchManagerFactory = branchManagerFactory;
+        this.cloneManager = cloneManager;
 
-        FileDiffManager fileDiffManager = new FileDiffManager(git, reviewPanelModel.codeViewerModel);
+        FileDiffManager fileDiffManager = new FileDiffManager(cloneManager, reviewPanelModel.codeViewerModel);
         this.reviewDetailPanel = new ReviewDetailPanel(settingsManager, reviewPanelModel.reviewDetailModel);
         this.codePanel = new CodePanel(settingsManager, reviewContextManager, reviewPanelModel.codeViewerModel,
-            fileDiffManager, git, pluginManager);
+            fileDiffManager, cloneManager, pluginManager);
         this.toastWindow = new UpdateToastWindow(this);
 
         this.loadController = new ReviewLoadController(reviewContextManager, reviewPanelModel,
-            fileDiffManager, git, codePanel);
+            fileDiffManager, cloneManager, codePanel);
         this.reviewerDecisionHandler = new ReviewerDecisionHandler(reviewContextManager, reviewPanelModel,
             settingsManager, () -> currentReviewContext, ctx -> currentReviewContext = ctx);
         this.membershipHandler = new ReviewMembershipHandler(reviewContextManager, reviewPanelModel,

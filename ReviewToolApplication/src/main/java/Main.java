@@ -65,6 +65,8 @@ public class Main {
             DI.add(OrphanBranchReviewManagerFactory.class, managerFactory);
             DI.inject(RepositoryLoader.class);
             REPOSITORY_MANAGER = DI.inject(RepositoryManager.class);
+            ReviewCloneManager reviewCloneManager = new ReviewCloneManagerImpl(REPOSITORY_MANAGER);
+            DI.add(ReviewCloneManager.class, reviewCloneManager);
             // Single-arg factory registered after RepositoryManager is available so URL lookup works.
             final RepositoryManager repoMgr = REPOSITORY_MANAGER;
             ReviewBranchManagerFactory branchManagerFactory = repoName -> {

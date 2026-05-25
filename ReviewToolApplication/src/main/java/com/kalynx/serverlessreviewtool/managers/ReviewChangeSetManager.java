@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
 import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.FileChangeType;
 import com.kalynx.serverlessreviewtool.models.Repository;
@@ -26,17 +26,17 @@ public class ReviewChangeSetManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ReviewChangeSetManager.class);
 
-    private final Git git;
+    private final ReviewCloneManager cloneManager;
     private final ReviewBranchManagerFactory branchManagerFactory;
 
     /**
-     * Constructs a ReviewChangeSetManager with the given git client and branch manager factory.
+     * Constructs a ReviewChangeSetManager with the given clone manager and branch manager factory.
      *
-     * @param git                  the git client used for all git operations
+     * @param cloneManager         manages blobless git clones for diff operations
      * @param branchManagerFactory factory for creating per-repository orphan branch managers
      */
-    public ReviewChangeSetManager(Git git, ReviewBranchManagerFactory branchManagerFactory) {
-        this.git = git;
+    public ReviewChangeSetManager(ReviewCloneManager cloneManager, ReviewBranchManagerFactory branchManagerFactory) {
+        this.cloneManager = cloneManager;
         this.branchManagerFactory = branchManagerFactory;
     }
 
@@ -80,12 +80,12 @@ public class ReviewChangeSetManager {
                                     reviewBranch, repositoryName);
                                 return CompletableFuture.completedFuture(new ArrayList<ReviewFile>());
                             }
-                            return git.listChangedFiles(repositoryName, resolved.baseRef(), resolved.reviewRef())
+                            return cloneManager.listChangedFiles(repositoryName, resolved.baseRef(), resolved.reviewRef())
                                 .thenApply(paths -> toReviewFiles(paths, repositoryName, baseBranch, reviewBranch));
                         });
                 }
 
-                return git.listChangedFiles(repositoryName, resolved.baseRef(), resolved.reviewRef())
+                return cloneManager.listChangedFiles(repositoryName, resolved.baseRef(), resolved.reviewRef())
                     .thenApply(paths -> toReviewFiles(paths, repositoryName, baseBranch, reviewBranch));
             })
             .exceptionally(error -> {
@@ -290,7 +290,7 @@ public class ReviewChangeSetManager {
             .thenCompose(resolved -> {
                 String commitRange = resolved.baseRef() + ".." + resolved.reviewRef();
                 return loadLatestReviewCommits(reviewId, repo.getName())
-                    .thenCompose(existingCommits -> git.listCommits(repo.getName(), commitRange, 1000)
+                    .thenCompose(existingCommits -> cloneManager.listCommits(repo.getName(), commitRange, 1000)
                         .thenApply(this::extractCommitHashes)
                         .thenCompose(commitHashes -> {
                             if (commitHashes.isEmpty()) {
@@ -339,8 +339,8 @@ public class ReviewChangeSetManager {
         LOGGER.debug("Computing review file diff for review {} in repo {} using range {}...{}",
             reviewId, repositoryName, baseRef, newestCommit);
 
-        return git.executeAsync(repositoryName, "rev-parse", "--verify", baseRef)
-            .thenCompose(ignored -> git.listChangedFiles(repositoryName, baseRef, newestCommit))
+        return cloneManager.execute(repositoryName, "rev-parse", "--verify", baseRef)
+            .thenCompose(ignored -> cloneManager.listChangedFiles(repositoryName, baseRef, newestCommit))
             .thenApply(paths -> toReviewFiles(paths, repositoryName, baseBranch, branch))
             .exceptionally(error -> {
                 LOGGER.warn("Failed to compute diff range {}...{} for review {} in repo {} (oldest commit may be a root): {}",
@@ -414,7 +414,7 @@ public class ReviewChangeSetManager {
 
     private CompletableFuture<String> resolveBaseRefForRepository(String repositoryName, String baseRef) {
         List<String> baseCandidates = candidateRefs(baseRef);
-        return git.getDefaultBranch(repositoryName)
+        return cloneManager.getDefaultBranch(repositoryName)
             .exceptionally(_ -> "main")
             .thenCompose(defaultBranch -> {
                 for (String candidate : candidateRefs(defaultBranch)) {
@@ -452,7 +452,7 @@ public class ReviewChangeSetManager {
     }
 
     private CompletableFuture<Boolean> refExistsInRepository(String repositoryName, String ref) {
-        return git.executeAsync(repositoryName, "rev-parse", "--verify", ref)
+        return cloneManager.execute(repositoryName, "rev-parse", "--verify", ref)
             .thenApply(_ -> true)
             .exceptionally(_ -> false);
     }

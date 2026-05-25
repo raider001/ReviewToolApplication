@@ -1,6 +1,6 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.Git;
+import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
 import com.kalynx.serverlessreviewtool.models.Commit;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.CodeViewerModel;
@@ -20,11 +20,11 @@ import java.util.concurrent.CompletableFuture;
 public class FileDiffManager {
     private static final Logger logger = LoggerFactory.getLogger(FileDiffManager.class);
 
-    private final Git git;
+    private final ReviewCloneManager cloneManager;
     private final CodeViewerModel codeViewerModel;
 
-    public FileDiffManager(Git git, CodeViewerModel codeViewerModel) {
-        this.git = git;
+    public FileDiffManager(ReviewCloneManager cloneManager, CodeViewerModel codeViewerModel) {
+        this.cloneManager = cloneManager;
         this.codeViewerModel = codeViewerModel;
     }
 
@@ -39,7 +39,7 @@ public class FileDiffManager {
      * @param maxCommits     maximum number of branch commits to show
      * @return future that completes when commits are loaded
      */
-    public CompletableFuture<Void> loadCommitsForReview(String repositoryName, String remoteUrl,
+    public CompletableFuture<Void> loadCommitsForReview(String repositoryName,
                                                          String branch, int maxCommits) {
         if (branch == null || branch.isBlank()) {
             logger.warn("Cannot load commits for repository {}: branch ref is blank", repositoryName);
@@ -49,9 +49,9 @@ public class FileDiffManager {
         logger.info("Loading commits for repository: {}, branch: {}, max: {}", repositoryName, branch, maxCommits);
         long start = System.nanoTime();
 
-        return git.listCommitsRemote(remoteUrl, branch, maxCommits + 1)
+        return cloneManager.listCommits(repositoryName, branch, maxCommits + 1)
             .thenApply(rawLines -> {
-                logger.info("TIMING loadCommitsForReview git.listCommitsRemote (repo={}, branch={}): {}ms",
+                logger.info("TIMING loadCommitsForReview git.listCommits (repo={}, branch={}): {}ms",
                     repositoryName, branch, elapsedMs(start));
                 return rawLines;
             })
@@ -109,7 +109,7 @@ public class FileDiffManager {
         }
 
         List<CompletableFuture<Commit>> commitFutures = commitHashes.stream()
-            .map(hash -> git.executeAsync(repositoryName,
+            .map(hash -> cloneManager.execute(repositoryName,
                     "show", "-s", "--format=%H|%an|%ad|%s", "--date=short", hash)
                 .thenApply(this::parseSingleCommit)
                 .exceptionally(error -> {
@@ -183,7 +183,7 @@ public class FileDiffManager {
         // When comparing specific commits, always try to load file content
         // The file's changeType (ADDED/DELETED/MODIFIED) is relative to branch comparison
         // A file marked ADDED (not in master) might still exist in both commits we're comparing
-        CompletableFuture<String> leftContentFuture = git.executeAsync(repositoryName, "show",
+        CompletableFuture<String> leftContentFuture = cloneManager.execute(repositoryName, "show",
             startCommit.getHash() + ":" + file.getPath())
             .exceptionally(error -> {
                 String errorMsg = error.getMessage();
@@ -193,7 +193,7 @@ public class FileDiffManager {
                        "// Path: " + file.getPath();
             });
 
-        CompletableFuture<String> rightContentFuture = git.executeAsync(repositoryName, "show",
+        CompletableFuture<String> rightContentFuture = cloneManager.execute(repositoryName, "show",
             endCommit.getHash() + ":" + file.getPath())
             .exceptionally(error -> {
                 String errorMsg = error.getMessage();
@@ -232,7 +232,7 @@ public class FileDiffManager {
 
     private CompletableFuture<String> loadUnifiedDiff(String repositoryName, String filePath,
                                                         String fromCommit, String toCommit) {
-        return git.executeAsync(repositoryName, "diff", fromCommit, toCommit, "--", filePath)
+        return cloneManager.execute(repositoryName, "diff", fromCommit, toCommit, "--", filePath)
             .exceptionally(error -> {
                 String errorMsg = error.getMessage();
                 logger.warn("Failed to generate unified diff for {}: {}", filePath, errorMsg);
@@ -251,9 +251,9 @@ public class FileDiffManager {
 
         Commit oldestBranchCommit = commits.getLast();
         String parentRef = oldestBranchCommit.getHash() + "^";
-        return git.executeAsync(repositoryName, "rev-parse", parentRef)
+        return cloneManager.execute(repositoryName, "rev-parse", parentRef)
             .thenApply(String::trim)
-            .thenCompose(parentHash -> git.executeAsync(repositoryName,
+            .thenCompose(parentHash -> cloneManager.execute(repositoryName,
                 "show", "-s", "--format=%H|%an|%ad|%s", "--date=short", parentHash)
                 .thenApply(this::parseSingleCommit)
                 .exceptionally(ignored -> new Commit(

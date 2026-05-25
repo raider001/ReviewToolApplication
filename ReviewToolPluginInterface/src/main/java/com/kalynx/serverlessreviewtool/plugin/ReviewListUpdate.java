@@ -12,6 +12,9 @@ import java.util.List;
  * @param reviewId unique review id
  * @param primaryRepository primary repository name for this review
  * @param repositories full repository snapshot for this review
+ * @param repositoryUrl canonical git URL for fetching review content directly; may be {@code null}
+ *                      if the URL is not known at notification time
+ * @param branchName branch name; non-{@code null} only for {@code branch.*} events
  */
 public record ReviewListUpdate(
         String eventId,
@@ -19,7 +22,9 @@ public record ReviewListUpdate(
         ReviewUpdateType updateType,
         String reviewId,
         String primaryRepository,
-        List<String> repositories) implements NotificationPayload {
+        List<String> repositories,
+        String repositoryUrl,
+        String branchName) implements NotificationPayload {
 }
 
 

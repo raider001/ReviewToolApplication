@@ -4,6 +4,7 @@ import com.kalynx.lwdi.DI;
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
+import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
@@ -64,6 +65,7 @@ public class MainFrame extends ThemedFrame {
     private final UserManager userManager;
     private final Git git;
     private final ReviewBranchManagerFactory branchManagerFactory;
+    private final ReviewCloneManager cloneManager;
 
     private LoginPanel loginPanel;
     private ReviewSelectionPanel reviewSelectionPanel;
@@ -89,7 +91,8 @@ public class MainFrame extends ThemedFrame {
             ReviewPanelModel reviewPanelModel,
             UserManager userManager,
             Git git,
-            ReviewBranchManagerFactory branchManagerFactory) {
+            ReviewBranchManagerFactory branchManagerFactory,
+            ReviewCloneManager cloneManager) {
         super("Serverless Review Tool",
               settingsManager.getSettings().getWindow().getDefaultWidth(),
               settingsManager.getSettings().getWindow().getDefaultHeight());
@@ -104,6 +107,7 @@ public class MainFrame extends ThemedFrame {
         this.userManager = userManager;
         this.git = git;
         this.branchManagerFactory = branchManagerFactory;
+        this.cloneManager = cloneManager;
         setApplicationIcon(AppIcon.createIconImages());
         initializePanels();
         setupMenuItems();
@@ -170,7 +174,7 @@ public class MainFrame extends ThemedFrame {
         loginPanel.setOnLoginSuccess(this::showReviewPanel);
 
         reviewSelectionPanel = new ReviewSelectionPanel(repositoryManager, reviewSelectionPanelModel, reviewFormModels, git, settingsManager, userManager, branchManagerFactory);
-        reviewPanel = new ReviewPanel(settingsManager, reviewContextManager, repositoryManager, reviewFormModels, reviewPanelModel, git, pluginManager, branchManagerFactory);
+        reviewPanel = new ReviewPanel(settingsManager, reviewContextManager, repositoryManager, reviewFormModels, reviewPanelModel, git, pluginManager, branchManagerFactory, cloneManager);
         swipeActionPanel = new SwipeActionPanel(reviewPanel);
 
         swipeActionPanel.setOnApprove(reviewPanel::handleApprove);

@@ -20,7 +20,9 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Manages a local bare git object store for a single remote repository's
@@ -63,14 +65,16 @@ public class OrphanBranchStore {
     private static final Duration GIT_TIMEOUT = Duration.ofSeconds(60);
 
     private static final long FETCH_CACHE_TTL_MS = 30_000;
+    private static final long BG_REFRESH_INTERVAL_MS = FETCH_CACHE_TTL_MS - 5_000;
 
     private final String remoteUrl;
     private final Path bareDir;
     private final Executor executor;
+    private final ScheduledExecutorService bgRefresher;
     private volatile boolean initialized = false;
 
-    // Accessed only from the single-thread executor — no volatile needed.
-    private long lastFetchTimeMs = 0;
+    private volatile long lastFetchTimeMs = 0;
+    private final AtomicBoolean fetchInProgress = new AtomicBoolean(false);
 
     /**
      * Creates a store backed by a bare git repo under {@code baseDir}.
@@ -87,6 +91,13 @@ public class OrphanBranchStore {
             t.setDaemon(true);
             return t;
         });
+        this.bgRefresher = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "OrphanBranchStore-bg-" + repoName);
+            t.setDaemon(true);
+            return t;
+        });
+        bgRefresher.scheduleAtFixedRate(
+                this::backgroundFetch, BG_REFRESH_INTERVAL_MS, BG_REFRESH_INTERVAL_MS, TimeUnit.MILLISECONDS);
     }
 
     // -------------------------------------------------------------------------
@@ -202,6 +213,8 @@ public class OrphanBranchStore {
     private void writeWithRetry(String reviewId, Map<String, byte[]> pathToContent, int retriesLeft)
             throws Exception {
         fetchTip(); // always fetch fresh before each attempt
+        // Local bare repo is now up to date — reads queued after this write can skip fetching.
+        lastFetchTimeMs = System.currentTimeMillis();
 
         // Write each blob into the object store via git hash-object -w --stdin
         Map<String, String> pathToSha = new java.util.LinkedHashMap<>();
@@ -497,17 +510,42 @@ public class OrphanBranchStore {
 
     /**
      * Like {@link #fetchTip()} but skips the network call if a fetch completed within
-     * {@value #FETCH_CACHE_TTL_MS} ms. Called from reads; writes always use {@link #fetchTip()}.
-     *
-     * Must only be called from tasks submitted to {@link #executor} (single-threaded).
+     * {@value #FETCH_CACHE_TTL_MS} ms, or yields immediately if a background refresh is
+     * already in progress. Called from reads; writes always use {@link #fetchTip()}.
      */
     private void fetchTipCached() {
         long now = System.currentTimeMillis();
         if (now - lastFetchTimeMs < FETCH_CACHE_TTL_MS) {
             return;
         }
-        fetchTip();
-        lastFetchTimeMs = System.currentTimeMillis();
+        if (!fetchInProgress.compareAndSet(false, true)) {
+            // Background refresh already in progress — use local store as-is.
+            return;
+        }
+        try {
+            fetchTip();
+            lastFetchTimeMs = System.currentTimeMillis();
+        } finally {
+            fetchInProgress.set(false);
+        }
+    }
+
+    /**
+     * Runs proactively on a background thread every {@value #BG_REFRESH_INTERVAL_MS} ms so that
+     * the TTL never expires during normal interactive use, eliminating blocking fetches on reads.
+     */
+    private void backgroundFetch() {
+        if (!initialized) return;
+        if (!fetchInProgress.compareAndSet(false, true)) return;
+        try {
+            fetchTip();
+            lastFetchTimeMs = System.currentTimeMillis();
+            LOGGER.debug("Background fetch completed for {}", remoteUrl);
+        } catch (Exception e) {
+            LOGGER.debug("Background fetch soft error for {}: {}", remoteUrl, e.getMessage());
+        } finally {
+            fetchInProgress.set(false);
+        }
     }
 
     /**

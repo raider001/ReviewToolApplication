@@ -1,6 +1,6 @@
 package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel;
 
-import com.kalynx.serverlessreviewtool.git.Git;
+import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
 import com.kalynx.serverlessreviewtool.managers.FileDiffManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
 import com.kalynx.serverlessreviewtool.models.Repository;
@@ -31,25 +31,25 @@ public class ReviewLoadController {
     private final ReviewContextManager reviewContextManager;
     private final ReviewPanelModel model;
     private final FileDiffManager fileDiffManager;
-    private final Git git;
+    private final ReviewCloneManager cloneManager;
     private final CodePanel codePanel;
 
     /**
      * @param reviewContextManager manager for review context operations
      * @param model                shared panel model
      * @param fileDiffManager      file diff loading manager
-     * @param git                  git operations
+     * @param cloneManager         blobless clone manager (replaces per-branch fetching)
      * @param codePanel            code viewer panel, used for viewport restore
      */
     public ReviewLoadController(ReviewContextManager reviewContextManager,
                                 ReviewPanelModel model,
                                 FileDiffManager fileDiffManager,
-                                Git git,
+                                ReviewCloneManager cloneManager,
                                 CodePanel codePanel) {
         this.reviewContextManager = reviewContextManager;
         this.model = model;
         this.fileDiffManager = fileDiffManager;
-        this.git = git;
+        this.cloneManager = cloneManager;
         this.codePanel = codePanel;
     }
 
@@ -142,18 +142,15 @@ public class ReviewLoadController {
     private CompletableFuture<Void> buildUpfrontFetchFuture(ReviewItem reviewItem,
                                                             List<String> repositoryNames,
                                                             String reviewId) {
-        String branch = reviewItem.getBranch();
-        String baseBranch = reviewItem.getBaseBranch();
-        if (branch == null || baseBranch == null || repositoryNames.isEmpty()) {
+        if (repositoryNames.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
         long fetchStart = System.nanoTime();
-        List<String> branchesToFetch = List.of(branch, baseBranch);
         List<CompletableFuture<Void>> futures = repositoryNames.stream()
-            .map(repoName -> git.fetchBranches(repoName, branchesToFetch))
+            .map(cloneManager::refresh)
             .toList();
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenRun(() -> LOGGER.info("TIMING [{}] git.fetchBranchesUpfront ({} repos, targeted): {}ms",
+            .thenRun(() -> LOGGER.info("TIMING [{}] cloneManager.refresh ({} repos): {}ms",
                 reviewId, repositoryNames.size(), elapsedMs(fetchStart)));
     }
 
@@ -177,13 +174,12 @@ public class ReviewLoadController {
             return upfrontFetchFuture;
         }
 
-        List<String> branchesToFetch = List.of(reviewContext.getBranch(), reviewContext.getBaseBranch());
         long fetchStart = System.nanoTime();
         List<CompletableFuture<Void>> futures = repositories.stream()
-            .map(repo -> git.fetchBranches(repo.getName(), branchesToFetch))
+            .map(repo -> cloneManager.refresh(repo.getName()))
             .toList();
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenRun(() -> LOGGER.info("TIMING [{}] git.fetchBranches ({} repos, targeted): {}ms",
+            .thenRun(() -> LOGGER.info("TIMING [{}] cloneManager.refresh ({} repos): {}ms",
                 reviewId, repositories.size(), elapsedMs(fetchStart)));
     }
 
@@ -263,7 +259,7 @@ public class ReviewLoadController {
                                                   String reviewId) {
         long commitsStart = System.nanoTime();
         CompletableFuture<Void> commits = fileDiffManager
-            .loadCommitsForReview(primaryRepo.getName(), primaryRepo.getUrl(), remoteBranch, 1000)
+            .loadCommitsForReview(primaryRepo.getName(), remoteBranch, 1000)
             .thenRun(() -> LOGGER.info("TIMING [{}] loadCommitsForReview ({}): {}ms",
                 reviewId, primaryRepo.getName(), elapsedMs(commitsStart)));
 

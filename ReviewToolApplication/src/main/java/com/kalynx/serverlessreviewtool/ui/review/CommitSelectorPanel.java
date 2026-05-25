@@ -2,7 +2,7 @@ package com.kalynx.serverlessreviewtool.ui.review;
 
 import java.io.Serial;
 
-import com.kalynx.serverlessreviewtool.git.Git;
+import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
 import com.kalynx.serverlessreviewtool.models.*;
 import com.kalynx.swingtheme.themedcomponents.ThemedComboBox;
 import com.kalynx.swingtheme.themedcomponents.ThemedLabel;
@@ -33,14 +33,14 @@ public class CommitSelectorPanel extends ThemedPanel {
     private static final Logger LOGGER = LoggerFactory.getLogger(CommitSelectorPanel.class);
 
     private transient final CodeViewerModel codeViewerModel;
-    private transient final Git git;
+    private transient final ReviewCloneManager cloneManager;
 
     private ThemedComboBox<DiffViewMode> viewModeComboBox;
     private CommitSliderPanel commitSliderPanel;
 
-    public CommitSelectorPanel(CodeViewerModel codeViewerModel, Git git) {
+    public CommitSelectorPanel(CodeViewerModel codeViewerModel, ReviewCloneManager cloneManager) {
         this.codeViewerModel = codeViewerModel;
-        this.git = git;
+        this.cloneManager = cloneManager;
         configureLayout();
         setupModelListeners();
     }
@@ -151,7 +151,7 @@ public class CommitSelectorPanel extends ThemedPanel {
 
     private CompletableFuture<String> resolveBaseBranchRef(String repositoryName, String baseBranch) {
         if (baseBranch == null || baseBranch.isBlank()) {
-            return git.getDefaultBranch(repositoryName)
+            return cloneManager.getDefaultBranch(repositoryName)
                 .thenCompose(defaultBranch -> resolveCommitHashFromCandidates(repositoryName, buildRefCandidates(defaultBranch)))
                 .handle((resolved, error) -> {
                     if (error == null) {
@@ -169,7 +169,7 @@ public class CommitSelectorPanel extends ThemedPanel {
                     return CompletableFuture.completedFuture(resolved);
                 }
                 LOGGER.warn("Unable to resolve base branch {} for repository {}. Falling back to default branch", baseBranch, repositoryName);
-                return git.getDefaultBranch(repositoryName)
+                return cloneManager.getDefaultBranch(repositoryName)
                     .thenCompose(defaultBranch -> resolveCommitHashFromCandidates(repositoryName, buildRefCandidates(defaultBranch)))
                     .exceptionallyCompose(ignored -> resolveCommitHashFromCandidates(repositoryName, List.of("HEAD")));
             })
@@ -220,7 +220,7 @@ public class CommitSelectorPanel extends ThemedPanel {
         }
 
         String candidate = candidates.get(index);
-        return git.executeAsync(repositoryName, "rev-parse", "--verify", candidate + "^{commit}")
+        return cloneManager.execute(repositoryName, "rev-parse", "--verify", candidate + "^{commit}")
             .thenApply(String::trim)
             .handle((resolved, error) -> {
                 if (error == null) {
@@ -233,7 +233,7 @@ public class CommitSelectorPanel extends ThemedPanel {
 
     private CompletableFuture<String> loadCommitsWithFallback(String repositoryName, String filePath, String baseCommit, String branchCommit) {
         String commitRange = baseCommit + ".." + branchCommit;
-        return git.executeAsync(repositoryName, "log", "--format=%H|%an|%ad|%s", "--date=short", "--follow", commitRange, "--", filePath)
+        return cloneManager.execute(repositoryName, "log", "--format=%H|%an|%ad|%s", "--date=short", "--follow", commitRange, "--", filePath)
             .handle((output, error) -> {
                 if (error == null) {
                     return CompletableFuture.completedFuture(output);
@@ -241,7 +241,7 @@ public class CommitSelectorPanel extends ThemedPanel {
 
                 if (isBadRevisionError(error)) {
                     LOGGER.warn("Invalid commit range {} for repository {}. Falling back to branch-only file history for {}", commitRange, repositoryName, filePath);
-                    return git.executeAsync(repositoryName, "log", "--format=%H|%an|%ad|%s", "--date=short", "--follow", branchCommit, "--", filePath);
+                    return cloneManager.execute(repositoryName, "log", "--format=%H|%an|%ad|%s", "--date=short", "--follow", branchCommit, "--", filePath);
                 }
 
                 return CompletableFuture.<String>failedFuture(error);
@@ -273,9 +273,9 @@ public class CommitSelectorPanel extends ThemedPanel {
 
     private CompletableFuture<Commit> resolveBaselineCommit(String repositoryName, Commit oldestCommit) {
         String parentRef = oldestCommit.getHash() + "^";
-        return git.executeAsync(repositoryName, "rev-parse", parentRef)
+        return cloneManager.execute(repositoryName, "rev-parse", parentRef)
             .thenApply(String::trim)
-            .thenCompose(parentHash -> git.executeAsync(repositoryName,
+            .thenCompose(parentHash -> cloneManager.execute(repositoryName,
                 "show", "-s", "--format=%H|%an|%ad|%s", "--date=short", parentHash)
                 .thenApply(this::parseCommit)
                 .exceptionally(ignored -> new Commit(

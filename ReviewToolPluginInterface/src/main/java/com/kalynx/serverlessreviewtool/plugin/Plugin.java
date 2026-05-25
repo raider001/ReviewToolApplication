@@ -12,5 +12,15 @@ public interface Plugin {
      * Implementations should perform any setup required before the plugin is used.
      */
     void initialize();
+
+    /**
+     * Returns a UI panel to be added to the application menu, or null if this plugin
+     * does not contribute UI.
+     *
+     * @return plugin panel descriptor, or null
+     */
+    default PluginPanel getUI() {
+        return null;
+    }
 }
 

@@ -4,7 +4,7 @@ import java.io.Serial;
 import java.util.function.Consumer;
 
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
-import com.kalynx.serverlessreviewtool.git.Git;
+import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
 import com.kalynx.serverlessreviewtool.models.Commit;
@@ -43,12 +43,12 @@ public class CodePanel extends ThemedPanel {
     private boolean commentsEnabled = false;
 
     public CodePanel(SettingsManager settingsManager, ReviewContextManager reviewContextManager, CodeViewerModel codeViewerModel,
-                     com.kalynx.serverlessreviewtool.managers.FileDiffManager fileDiffManager, Git git, PluginManager pluginManager) {
+                     com.kalynx.serverlessreviewtool.managers.FileDiffManager fileDiffManager, ReviewCloneManager cloneManager, PluginManager pluginManager) {
         this.settingsManager = settingsManager;
         this.reviewContextManager = reviewContextManager;
         this.codeViewerModel = codeViewerModel;
         this.fileDiffManager = fileDiffManager;
-        this.commitSelectorPanel = new CommitSelectorPanel(codeViewerModel, git);
+        this.commitSelectorPanel = new CommitSelectorPanel(codeViewerModel, cloneManager);
         this.fileNavigationPanel = new FileNavigationPanel(reviewContextManager, codeViewerModel);
         this.diffViewerPanel = new DiffViewerPanel(codeViewerModel, pluginManager);
         configureLayout();
