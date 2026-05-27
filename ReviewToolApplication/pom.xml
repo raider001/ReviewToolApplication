@@ -22,6 +22,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.kalynx</groupId>
+            <artifactId>lwdi</artifactId>
+            <version>1.0</version>
+        </dependency>
+        <dependency>
             <groupId>com.serverless</groupId>
             <artifactId>review-tool-plugin-interface</artifactId>
             <version>${project.version}</version>
