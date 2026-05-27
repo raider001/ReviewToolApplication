@@ -41,6 +41,14 @@ public final class LocalTimeSeriesBuffer {
                 .count();
     }
 
+    public double sum(long windowMs) {
+        long cutoff = System.currentTimeMillis() - windowMs;
+        return samples.stream()
+                .filter(s -> s.timestampMs() >= cutoff)
+                .mapToDouble(Sample::value)
+                .sum();
+    }
+
     public List<Sample> getWindow(long windowMs) {
         long cutoff = System.currentTimeMillis() - windowMs;
         return samples.stream()

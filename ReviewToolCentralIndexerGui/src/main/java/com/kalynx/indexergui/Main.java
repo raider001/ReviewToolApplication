@@ -3,6 +3,7 @@ package com.kalynx.indexergui;
 import com.kalynx.indexergui.client.IndexerClient;
 import com.kalynx.indexergui.client.MetricsPoller;
 import com.kalynx.indexergui.gui.IndexerGuiClient;
+import com.kalynx.lwdi.DependencyInjector;
 
 import javax.swing.*;
 
@@ -10,10 +11,6 @@ import javax.swing.*;
  * Entry point for the standalone Central Indexer GUI.
  *
  * <p>Usage: {@code java -jar central-indexer-gui.jar [--host <host>] [--port <port>]}
- * <ul>
- *   <li>{@code --host} — indexer hostname (default: {@code localhost})</li>
- *   <li>{@code --port} — indexer port (default: {@code 8765})</li>
- * </ul>
  */
 public final class Main {
 
@@ -36,14 +33,24 @@ public final class Main {
         int    finalPort = port;
 
         SwingUtilities.invokeLater(() -> {
-            IndexerClient    client = new IndexerClient(finalHost, finalPort);
-            MetricsPoller    poller = new MetricsPoller(client);
-            IndexerGuiClient gui    = new IndexerGuiClient(poller, client, finalHost, finalPort);
+            try {
+                DependencyInjector di = new DependencyInjector();
+                di.add(new IndexerClient(finalHost, finalPort));
+                MetricsPoller poller = di.inject(MetricsPoller.class);
 
-            gui.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            gui.setVisible(true);
-            poller.start();
-            gui.startRefresh();
+                IndexerGuiClient gui = new IndexerGuiClient(
+                        poller,
+                        di.getDependency(IndexerClient.class),
+                        finalHost, finalPort);
+
+                gui.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+                gui.setVisible(true);
+                poller.start();
+                gui.startRefresh();
+            } catch (Exception e) {
+                System.err.println("Failed to start GUI: " + e.getMessage());
+                System.exit(1);
+            }
         });
     }
 }

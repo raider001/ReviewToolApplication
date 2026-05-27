@@ -18,8 +18,8 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Dashboard panel: connection status + four metric cards + tabbed charts.
- * Data comes from {@link MetricsPoller} which polls the indexer over HTTP.
+ * Dashboard panel: connection status, CPU block with per-core grid, storage/memory/connections row,
+ * and tabbed charts. Data comes from {@link MetricsPoller} which polls the indexer over HTTP.
  */
 public final class StatisticsPanel extends ThemedPanel {
 
@@ -35,11 +35,18 @@ public final class StatisticsPanel extends ThemedPanel {
 
     private final ThemedLabel statusLabel;
 
-    private final MetricCard cpuCard;
+    // CPU block (full width)
+    private final ThemedLabel   cpuTotalLabel;
+    private final ThemedPanel   coreGridPanel;
+    private JLabel[]            coreLabels = new JLabel[0];
+    private int                 lastCoreColCount = -1;
+
+    // Summary cards (3-column row)
+    private final MetricCard storageCard;
     private final MetricCard memCard;
     private final MetricCard connCard;
-    private final MetricCard apiCard;
 
+    // Chart tabs
     private final ScaledLineChart cpuChart;
     private final ScaledLineChart memChart;
     private final ScaledLineChart connChart;
@@ -49,16 +56,16 @@ public final class StatisticsPanel extends ThemedPanel {
     private Timer refreshTimer;
 
     public StatisticsPanel(MetricsPoller poller) {
-        super(new MigLayout("insets 12, gap 12",
-                            "[grow][grow][grow][grow]",
-                            "[][][100::][grow]"));
+        super(new MigLayout("insets 12, gap 8",
+                            "[grow]",
+                            "[][][][100::][grow]"));
         this.poller = poller;
         setOpaque(true);
 
         // --- connection status row -----------------------------------------------
         statusLabel = new ThemedLabel("Connecting…");
         statusLabel.setFont(tm.getBaseFont().deriveFont(Font.BOLD, tm.scale(11)));
-        add(statusLabel, "span 4, wrap");
+        add(statusLabel, "growx, wrap");
 
         // --- time-window selector ------------------------------------------------
         ThemedPanel selectorRow = new ThemedPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -66,18 +73,35 @@ public final class StatisticsPanel extends ThemedPanel {
         windowCombo = new ThemedComboBox<>();
         for (String label : WINDOW_LABELS) windowCombo.addItem(label);
         selectorRow.add(windowCombo);
-        add(selectorRow, "span 4, wrap");
+        add(selectorRow, "growx, wrap");
 
-        // --- metric cards --------------------------------------------------------
-        cpuCard  = new MetricCard("CPU Usage",          "%",      new Color( 58, 150, 221));
-        memCard  = new MetricCard("Memory Usage",       "MB",     new Color(150,  80, 221));
-        connCard = new MetricCard("Active Connections", "",       new Color( 80, 200, 120));
-        apiCard  = new MetricCard("Provider API Calls", "total",  new Color(221, 150,  58));
+        // --- CPU block (full width) ----------------------------------------------
+        ThemedPanel cpuBlock = new ThemedPanel(new MigLayout("insets 8, gap 4", "[grow]", "[][]"));
+        tm.addThemeChangeListener(() -> applyBorder(cpuBlock, new Color(58, 150, 221)));
+        applyBorder(cpuBlock, new Color(58, 150, 221));
 
-        add(cpuCard,  "grow");
-        add(memCard,  "grow");
-        add(connCard, "grow");
-        add(apiCard,  "grow, wrap");
+        cpuTotalLabel = new ThemedLabel("Total CPU Usage: —");
+        cpuTotalLabel.setFont(tm.getBaseFont().deriveFont(Font.BOLD, tm.scale(13)));
+        cpuTotalLabel.setForeground(new Color(58, 150, 221));
+        cpuBlock.add(cpuTotalLabel, "growx, wrap");
+
+        coreGridPanel = new ThemedPanel(new MigLayout("insets 0, gap 6 2", "", ""));
+        cpuBlock.add(coreGridPanel, "growx");
+
+        add(cpuBlock, "growx, wrap");
+
+        // --- summary cards row (Storage | Memory | Active Connections) -----------
+        ThemedPanel cardsRow = new ThemedPanel(new MigLayout("insets 0, gap 8", "[grow][grow][grow]", "[]"));
+
+        storageCard = new MetricCard("Storage",           new Color( 80, 200, 120));
+        memCard     = new MetricCard("Memory Usage",      new Color(150,  80, 221));
+        connCard    = new MetricCard("Active Connections", new Color( 58, 150, 221));
+
+        cardsRow.add(storageCard, "grow");
+        cardsRow.add(memCard,     "grow");
+        cardsRow.add(connCard,    "grow");
+
+        add(cardsRow, "growx, wrap");
 
         // --- chart tabs ----------------------------------------------------------
         cpuChart  = new ScaledLineChart(new Color( 58, 150, 221), "%",  100.0);
@@ -90,7 +114,15 @@ public final class StatisticsPanel extends ThemedPanel {
         chartTabs.addTab("Memory",      wrapChart(memChart));
         chartTabs.addTab("Connections", wrapChart(connChart));
         chartTabs.addTab("API Calls",   wrapChart(apiChart));
-        add(chartTabs, "span 4, growx, growy");
+        add(chartTabs, "growx, growy");
+    }
+
+    private void applyBorder(JPanel panel, Color accent) {
+        Theme t = tm.getCurrentTheme();
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(accent.darker(), 1),
+                BorderFactory.createEmptyBorder(4, 4, 4, 4)));
+        panel.setBackground(t.getBackgroundColor());
     }
 
     private static ThemedPanel wrapChart(ScaledLineChart chart) {
@@ -121,90 +153,112 @@ public final class StatisticsPanel extends ThemedPanel {
             statusLabel.setForeground(new Color(221, 80, 80));
         }
 
-        cpuCard.update(String.format("%.1f",  poller.getCpuSamples().average(windowMs)));
-        memCard.update(String.format("%.0f",  poller.getMemorySamples().average(windowMs)));
-        connCard.update(String.format("%.1f", poller.getConnectionSamples().average(windowMs)));
-        apiCard.update(String.valueOf(        poller.getApiCallSamples().count(windowMs)));
+        // --- CPU block -----------------------------------------------------------
+        double totalCpu = poller.getCpuSamples().average(windowMs);
+        cpuTotalLabel.setText(String.format("Total CPU Usage: %.1f%%", totalCpu));
 
         List<LocalTimeSeriesBuffer> coreBufs = poller.getPerCoreSamples();
         int n = coreBufs.size();
-        double[] coreAvgs   = new double[n];
-        Color[]  coreColors = new Color[n];
-        for (int i = 0; i < n; i++) {
-            coreAvgs[i]   = coreBufs.get(i).average(windowMs);
-            coreColors[i] = (n == 1) ? new Color(58, 150, 221)
-                                      : Color.getHSBColor((float) i / n, 0.75f, 1.0f);
-        }
-        cpuCard.updateCores(coreAvgs, coreColors);
+        if (n > 0) {
+            Font coreFont = tm.getBaseFont().deriveFont(Font.PLAIN, tm.scale(10));
+            FontMetrics fm = getFontMetrics(coreFont);
+            // Sample covers 3-digit core numbers (100+ cores) plus the gap between columns
+            int gap    = tm.scale(6);
+            int labelW = fm.stringWidth("CPU 000: 000.0%") + gap;
+            int panelW = coreGridPanel.getWidth();
+            // Account for inter-column gaps: each cell = (panelW - gap*(cols-1)) / cols ≥ labelW - gap
+            // → cols ≤ (panelW + gap) / labelW.  Fall back to 4 if not yet laid out.
+            int cols = Math.max(1, panelW > 0 ? Math.max(1, (panelW + gap) / labelW) : 4);
 
+            if (coreLabels.length != n || cols != lastCoreColCount) {
+                lastCoreColCount = cols;
+                coreGridPanel.removeAll();
+                StringBuilder colSpec = new StringBuilder();
+                for (int c = 0; c < cols; c++) colSpec.append("[grow,fill]");
+                coreGridPanel.setLayout(new MigLayout("insets 0, gap 6 2, wrap " + cols, colSpec.toString()));
+                coreLabels = new JLabel[n];
+                for (int i = 0; i < n; i++) {
+                    JLabel lbl = new JLabel();
+                    lbl.setFont(coreFont);
+                    coreLabels[i] = lbl;
+                    coreGridPanel.add(lbl, "growx");
+                }
+                // Revalidate the whole panel so the outer MigLayout re-measures the CPU
+                // block's new preferred height and shrinks the chart area accordingly.
+                revalidate();
+            }
+            for (int i = 0; i < n; i++) {
+                double pct   = coreBufs.get(i).average(windowMs);
+                Color  color = Color.getHSBColor((float) i / n, 0.75f, 0.9f);
+                coreLabels[i].setForeground(color);
+                coreLabels[i].setText(String.format("CPU %d: %05.1f%%", i, pct));
+            }
+        }
+
+        // --- summary cards -------------------------------------------------------
+        long   freeMb  = poller.getDiskFreeMb();
+        long   totalMb = poller.getDiskTotalMb();
+        storageCard.update(formatDisk(freeMb, totalMb));
+
+        memCard.update(String.format("%.0f MB", poller.getMemorySamples().average(windowMs)));
+        connCard.update(String.format("%.0f", poller.getConnectionSamples().average(windowMs)));
+
+        // --- charts --------------------------------------------------------------
         List<List<Sample>> coreWindows = coreBufs.stream()
                 .map(buf -> buf.getWindow(windowMs))
                 .toList();
         cpuChart.setDataSets(coreWindows);
-
         memChart.setData(poller.getMemorySamples().getWindow(windowMs));
         connChart.setData(poller.getConnectionSamples().getWindow(windowMs));
         apiChart.setData(poller.getApiCallSamples().getWindow(windowMs));
     }
 
+    private static String formatDisk(long freeMb, long totalMb) {
+        if (totalMb <= 0) return "—";
+        return formatMb(freeMb) + " free\nof " + formatMb(totalMb);
+    }
+
+    private static String formatMb(long mb) {
+        if (mb >= 1024 * 1024) return String.format("%.1f TB", mb / (1024.0 * 1024));
+        if (mb >= 1024)        return String.format("%.0f GB", mb / 1024.0);
+        return mb + " MB";
+    }
+
     // =====================================================================
-    // MetricCard
+    // MetricCard — compact summary card with a single value
     // =====================================================================
 
     private final class MetricCard extends ThemedPanel {
 
         private final Color       accentColor;
         private final ThemedLabel titleLabel;
-        private final JLabel      valueLabel;
+        private final ThemedLabel valueLabel;
 
-        private JLabel[] coreLabels;
-
-        MetricCard(String title, String unit, Color accent) {
-            super(new MigLayout("insets 12, gap 6, flowy", "[grow]", "[][][]"));
+        MetricCard(String title, Color accent) {
+            super(new MigLayout("insets 10, gap 4, flowy", "[grow]", "[][]"));
             this.accentColor = accent;
             setOpaque(true);
 
             titleLabel = new ThemedLabel(title);
             titleLabel.setFont(tm.getBaseFont().deriveFont(Font.BOLD, tm.scale(11)));
 
-            valueLabel = new JLabel("—");
-            valueLabel.setFont(tm.getBaseFont().deriveFont(Font.BOLD, (float) tm.scale(28)));
+            valueLabel = new ThemedLabel("—");
+            valueLabel.setFont(tm.getBaseFont().deriveFont(Font.BOLD, (float) tm.scale(20)));
             valueLabel.setForeground(accent);
-
-            ThemedLabel unitLabel = new ThemedLabel(unit);
-            unitLabel.setFont(tm.getBaseFont().deriveFont(Font.PLAIN, tm.scale(11)));
 
             add(titleLabel, "growx");
             add(valueLabel, "growx");
-            add(unitLabel,  "growx");
 
             tm.addThemeChangeListener(this::applyCardBorder);
             applyCardBorder();
         }
 
-        void update(String value) { valueLabel.setText(value); }
-
-        void updateCores(double[] pcts, Color[] colors) {
-            if (coreLabels == null) {
-                coreLabels = new JLabel[pcts.length];
-                int cols = Math.max(2, (int) Math.ceil(Math.sqrt(pcts.length)));
-                StringBuilder colSpec = new StringBuilder();
-                for (int i = 0; i < cols; i++) colSpec.append("[grow,fill]");
-                JPanel grid = new JPanel(new MigLayout(
-                        "insets 0, gap 4 2, wrap " + cols, colSpec.toString()));
-                grid.setOpaque(false);
-                for (int i = 0; i < pcts.length; i++) {
-                    JLabel lbl = new JLabel();
-                    lbl.setFont(tm.getBaseFont().deriveFont(Font.PLAIN, tm.scale(9)));
-                    lbl.setForeground(i < colors.length ? colors[i] : accentColor);
-                    coreLabels[i] = lbl;
-                    grid.add(lbl, "growx");
-                }
-                add(grid, "growx");
-                revalidate();
-            }
-            for (int i = 0; i < pcts.length && i < coreLabels.length; i++) {
-                coreLabels[i].setText(String.format("CPU %d: %04.1f%%", i, pcts[i]));
+        void update(String value) {
+            // support newline-separated multi-line values via HTML
+            if (value.contains("\n")) {
+                valueLabel.setText("<html>" + value.replace("\n", "<br>") + "</html>");
+            } else {
+                valueLabel.setText(value);
             }
         }
 

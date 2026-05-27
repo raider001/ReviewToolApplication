@@ -28,13 +28,16 @@ public final class QueryPanel extends ThemedPanel {
     private static final String TABLE_REVIEWS      = "Reviews";
     private static final String TABLE_BRANCHES     = "Branches";
     private static final String TABLE_REPOSITORIES = "Repositories";
-    private static final String[] TABLES = { TABLE_REVIEWS, TABLE_BRANCHES, TABLE_REPOSITORIES };
+    private static final String TABLE_COMMENTS     = "Comments";
+    private static final String[] TABLES = {
+        TABLE_REVIEWS, TABLE_BRANCHES, TABLE_REPOSITORIES, TABLE_COMMENTS
+    };
 
     private final IndexerClient client;
     private final ThemeManager  tm = ThemeManager.getInstance();
 
     private final ThemedComboBox<String> tableCombo;
-    private final JPanel                 filterCards;
+    private final ThemedPanel            filterCards;
     private final DefaultTableModel      tableModel;
     private final JTable                 resultsTable;
     private final ThemedLabel            statusLabel;
@@ -47,6 +50,9 @@ public final class QueryPanel extends ThemedPanel {
     private final ThemedTextField branchPrefixField;
     private final ThemedTextField branchOwnerField;
     private final ThemedTextField branchRepoField;
+
+    // comments filters
+    private final ThemedTextField commentReviewIdField;
 
     public QueryPanel(IndexerClient client) {
         super(new MigLayout("insets 12, gap 8, flowy", "[grow]", "[][][][grow][]"));
@@ -76,11 +82,14 @@ public final class QueryPanel extends ThemedPanel {
         branchRepoField   = new ThemedTextField();
         branchRepoField.setColumns(12);
 
-        filterCards = new JPanel(new CardLayout());
-        filterCards.setOpaque(false);
+        commentReviewIdField = new ThemedTextField();
+        commentReviewIdField.setColumns(24);
+
+        filterCards = new ThemedPanel(new CardLayout());
         filterCards.add(buildReviewsFilters(),      TABLE_REVIEWS);
         filterCards.add(buildBranchesFilters(),     TABLE_BRANCHES);
         filterCards.add(buildRepositoriesFilters(), TABLE_REPOSITORIES);
+        filterCards.add(buildCommentsFilters(),     TABLE_COMMENTS);
         add(filterCards, "growx");
 
         // --- action row ---------------------------------------------------------
@@ -139,6 +148,13 @@ public final class QueryPanel extends ThemedPanel {
     private JPanel buildRepositoriesFilters() {
         ThemedPanel p = new ThemedPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         p.add(new ThemedLabel("No filters — shows all tracked repositories."));
+        return p;
+    }
+
+    private JPanel buildCommentsFilters() {
+        ThemedPanel p = new ThemedPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        p.add(new ThemedLabel("Review ID:"));
+        p.add(commentReviewIdField);
         return p;
     }
 
@@ -203,6 +219,7 @@ public final class QueryPanel extends ThemedPanel {
                     case TABLE_REVIEWS      -> queryReviews();
                     case TABLE_BRANCHES     -> queryBranches();
                     case TABLE_REPOSITORIES -> queryRepositories();
+                    case TABLE_COMMENTS     -> queryComments();
                 }
             } catch (Exception ex) {
                 log.warn("GUI query failed", ex);
@@ -273,6 +290,25 @@ public final class QueryPanel extends ThemedPanel {
             tableModel.setRowCount(0);
             for (IndexerClient.RepositoryItem r : rows) {
                 tableModel.addRow(new Object[]{ r.owner(), r.repository(), r.url() });
+            }
+            setStatus(rows.size() + " row(s) returned.");
+        });
+    }
+
+    // --- comments ---------------------------------------------------------------
+
+    private void queryComments() throws Exception {
+        String reviewId = blankToNull(commentReviewIdField.getText());
+        if (reviewId == null) {
+            SwingUtilities.invokeLater(() -> setStatus("Review ID is required for Comments query."));
+            return;
+        }
+        List<IndexerClient.CommentItem> rows = client.getComments(reviewId);
+        SwingUtilities.invokeLater(() -> {
+            tableModel.setColumnIdentifiers(new String[]{"Comment ID", "Repository URL", "Last Updated"});
+            tableModel.setRowCount(0);
+            for (IndexerClient.CommentItem c : rows) {
+                tableModel.addRow(new Object[]{ c.comment_id(), c.repository_url(), c.last_updated() });
             }
             setStatus(rows.size() + " row(s) returned.");
         });
