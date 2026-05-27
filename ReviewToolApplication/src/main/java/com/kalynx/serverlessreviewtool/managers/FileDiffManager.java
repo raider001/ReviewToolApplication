@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * FileDiffManager manages loading file diffs and content for code review.
@@ -22,6 +23,7 @@ public class FileDiffManager {
 
     private final ReviewCloneManager cloneManager;
     private final CodeViewerModel codeViewerModel;
+    private final AtomicLong diffGeneration = new AtomicLong();
 
     public FileDiffManager(ReviewCloneManager cloneManager, CodeViewerModel codeViewerModel) {
         this.cloneManager = cloneManager;
@@ -177,6 +179,10 @@ public class FileDiffManager {
         logger.info("Loading diff for file {} between commits {} and {}",
             file.getPath(), startCommit.getShortHash(), endCommit.getShortHash());
 
+        // Guard against out-of-order async completions: only the most-recently-started
+        // request is allowed to update the model.
+        final long myGeneration = diffGeneration.incrementAndGet();
+
         String operationId = "load-diff-" + file.getPath() + "@" + startCommit.getShortHash() + ".." + endCommit.getShortHash();
         LoadingStateManager.getInstance().startLoading(operationId);
 
@@ -185,29 +191,21 @@ public class FileDiffManager {
         // A file marked ADDED (not in master) might still exist in both commits we're comparing
         CompletableFuture<String> leftContentFuture = cloneManager.execute(repositoryName, "show",
             startCommit.getHash() + ":" + file.getPath())
-            .exceptionally(error -> {
-                String errorMsg = error.getMessage();
-                logger.warn("File {} not found in commit {}: {}",
-                    file.getPath(), startCommit.getShortHash(), errorMsg);
-                return "// File does not exist in commit " + startCommit.getShortHash() + "\n" +
-                       "// Path: " + file.getPath();
-            });
+            .exceptionally(error -> contentFallback(file.getPath(), startCommit.getShortHash(), error));
 
         CompletableFuture<String> rightContentFuture = cloneManager.execute(repositoryName, "show",
             endCommit.getHash() + ":" + file.getPath())
-            .exceptionally(error -> {
-                String errorMsg = error.getMessage();
-                logger.warn("File {} not found in commit {}: {}",
-                    file.getPath(), endCommit.getShortHash(), errorMsg);
-                return "// File does not exist in commit " + endCommit.getShortHash() + "\n" +
-                       "// Path: " + file.getPath();
-            });
+            .exceptionally(error -> contentFallback(file.getPath(), endCommit.getShortHash(), error));
 
         CompletableFuture<String> unifiedDiffFuture = loadUnifiedDiff(repositoryName,
             file.getPath(), startCommit.getHash(), endCommit.getHash());
 
         return CompletableFuture.allOf(leftContentFuture, rightContentFuture, unifiedDiffFuture)
             .thenAccept(ignored -> {
+                if (diffGeneration.get() != myGeneration) {
+                    logger.debug("Discarding stale diff result for {} (generation mismatch)", file.getPath());
+                    return;
+                }
                 String leftContent = leftContentFuture.join();
                 String rightContent = rightContentFuture.join();
                 String unifiedDiff = unifiedDiffFuture.join();
@@ -294,6 +292,18 @@ public class FileDiffManager {
             }
         }
         return commits;
+    }
+
+    private String contentFallback(String filePath, String shortHash, Throwable error) {
+        String msg = error.getMessage() != null ? error.getMessage() : "";
+        if (msg.contains("not our ref") || msg.contains("upload-pack")) {
+            logger.warn("Commit {} not available on remote for file {} (push the branch to view)",
+                shortHash, filePath);
+            return "// Commit " + shortHash + " is not available on the remote.\n" +
+                   "// Push your branch and reload the review to view this file's content.";
+        }
+        logger.warn("File {} not found in commit {}: {}", filePath, shortHash, msg);
+        return "// File does not exist in commit " + shortHash + "\n// Path: " + filePath;
     }
 
     private static long elapsedMs(long startNano) {

@@ -133,7 +133,8 @@ public class ReviewLoadController {
                 }
             })
             .exceptionally(error -> {
-                LOGGER.info("TIMING [{}] === REVIEW LOAD FAILED: {}ms ===", reviewId, elapsedMs(overallStart));
+                LOGGER.error("TIMING [{}] === REVIEW LOAD FAILED: {}ms === cause: {}",
+                    reviewId, elapsedMs(overallStart), error.getMessage(), error);
                 model.setError("Failed to load review: " + error.getMessage());
                 return null;
             });
@@ -142,12 +143,18 @@ public class ReviewLoadController {
     private CompletableFuture<Void> buildUpfrontFetchFuture(ReviewItem reviewItem,
                                                             List<String> repositoryNames,
                                                             String reviewId) {
-        if (repositoryNames.isEmpty()) {
+        String branch = reviewItem.getBranch();
+        String baseBranch = reviewItem.getBaseBranch();
+        if (branch == null || baseBranch == null || repositoryNames.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
         long fetchStart = System.nanoTime();
         List<CompletableFuture<Void>> futures = repositoryNames.stream()
-            .map(cloneManager::refresh)
+            .map(repoName -> cloneManager.refresh(repoName)
+                .exceptionally(err -> {
+                    LOGGER.warn("Upfront refresh failed for repo '{}', will retry on demand: {}", repoName, err.getMessage());
+                    return null;
+                }))
             .toList();
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
             .thenRun(() -> LOGGER.info("TIMING [{}] cloneManager.refresh ({} repos): {}ms",
@@ -176,7 +183,11 @@ public class ReviewLoadController {
 
         long fetchStart = System.nanoTime();
         List<CompletableFuture<Void>> futures = repositories.stream()
-            .map(repo -> cloneManager.refresh(repo.getName()))
+            .map(repo -> cloneManager.refresh(repo.getName())
+                .exceptionally(err -> {
+                    LOGGER.warn("Refresh failed for repo '{}', will retry on demand: {}", repo.getName(), err.getMessage());
+                    return null;
+                }))
             .toList();
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
             .thenRun(() -> LOGGER.info("TIMING [{}] cloneManager.refresh ({} repos): {}ms",

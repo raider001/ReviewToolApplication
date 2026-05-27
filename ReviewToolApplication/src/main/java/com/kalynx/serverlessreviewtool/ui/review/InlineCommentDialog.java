@@ -409,27 +409,14 @@ public class InlineCommentDialog extends JDialog {
             }
         }
 
-        String operationId = "save-resolution-" + java.util.UUID.randomUUID();
-        loadingStateManager.startLoading(operationId);
-
-        resolveToggleButton.setEnabled(false);
-        addButton.setEnabled(false);
-        resolveToggleButton.setText("Saving...");
+        loadExistingComments();
+        notifyCommentChanged();
 
         reviewContextManager.saveAllComments(reviewContext.reviewId, lineComments)
-            .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                loadingStateManager.stopLoading(operationId);
-                resolveToggleButton.setEnabled(true);
-                addButton.setEnabled(true);
-                loadExistingComments();
-                notifyCommentChanged();
-            }))
             .exceptionally(error -> {
                 SwingUtilities.invokeLater(() -> {
-                    loadingStateManager.stopLoading(operationId);
-                    resolveToggleButton.setEnabled(true);
-                    addButton.setEnabled(true);
                     loadExistingComments();
+                    notifyCommentChanged();
                     ThemedConfirmDialog.showMessage(this, "Save Error",
                         "Failed to save resolution status: " + error.getMessage());
                 });
@@ -459,38 +446,21 @@ public class InlineCommentDialog extends JDialog {
         );
 
         reviewContext.addComment(newComment);
-
-        String operationId = "save-comment-" + commentId;
-        loadingStateManager.startLoading(operationId);
-
-        addButton.setEnabled(false);
-        newCommentEditor.setEnabled(false);
-        addButton.setText("Saving...");
+        newCommentEditor.setHtml("");
+        loadExistingComments();
+        notifyCommentChanged();
+        SwingUtilities.invokeLater(() -> {
+            JScrollBar vertical = ((JScrollPane) commentsContainer.getParent().getParent()).getVerticalScrollBar();
+            vertical.setValue(vertical.getMaximum());
+        });
 
         reviewContextManager.saveComment(reviewContext.reviewId, newComment)
-            .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                loadingStateManager.stopLoading(operationId);
-                addButton.setEnabled(true);
-                newCommentEditor.setEnabled(true);
-                addButton.setText("Add Comment");
-                newCommentEditor.setHtml("");
-                loadExistingComments();
-                notifyCommentChanged();
-
-                JScrollBar vertical = ((JScrollPane) commentsContainer.getParent().getParent()).getVerticalScrollBar();
-                vertical.setValue(vertical.getMaximum());
-            }))
             .exceptionally(error -> {
                 SwingUtilities.invokeLater(() -> {
-                    loadingStateManager.stopLoading(operationId);
-                    addButton.setEnabled(true);
-                    newCommentEditor.setEnabled(true);
-                    addButton.setText("Add Comment");
-
                     ThemedConfirmDialog.showMessage(this, "Save Error",
                         "Failed to save comment: " + error.getMessage());
-
                     reviewContext.getComments().remove(newComment);
+                    notifyCommentChanged();
                 });
                 return null;
             });

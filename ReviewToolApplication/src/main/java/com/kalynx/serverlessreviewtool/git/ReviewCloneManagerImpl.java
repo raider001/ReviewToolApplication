@@ -141,9 +141,15 @@ public class ReviewCloneManagerImpl implements ReviewCloneManager {
         String remoteUrl = repo.getUrl();
         Path clonePath = tempBase.resolve(sanitize(repoName));
 
-        if (Files.isDirectory(clonePath.resolve(".git"))) {
+        // A valid git repo always has .git/HEAD. If .git exists but HEAD is missing the
+        // previous clone failed mid-way — clean it up so we can re-clone cleanly.
+        if (Files.isRegularFile(clonePath.resolve(".git").resolve("HEAD"))) {
             LOG.debug("Re-using existing blobless clone for '{}' at {}", repoName, clonePath);
             return CompletableFuture.completedFuture(clonePath);
+        }
+        if (Files.exists(clonePath)) {
+            LOG.warn("Removing incomplete/corrupt clone directory for '{}' at {}", repoName, clonePath);
+            deleteDirectory(clonePath);
         }
 
         try {
@@ -214,17 +220,23 @@ public class ReviewCloneManagerImpl implements ReviewCloneManager {
     }
 
     private void deleteTempBase() {
-        if (!Files.exists(tempBase)) return;
-        try (var stream = Files.walk(tempBase)) {
+        deleteDirectory(tempBase);
+    }
+
+    private void deleteDirectory(Path dir) {
+        if (!Files.exists(dir)) return;
+        try (var stream = Files.walk(dir)) {
             stream.sorted(java.util.Comparator.reverseOrder())
                     .forEach(p -> {
                         try {
+                            // On Windows, git pack files can be read-only; force-writeable before delete.
+                            p.toFile().setWritable(true);
                             Files.delete(p);
                         } catch (IOException ignored) {
                         }
                     });
         } catch (IOException e) {
-            LOG.warn("Failed to clean up temp clones at {}: {}", tempBase, e.getMessage());
+            LOG.warn("Failed to delete directory {}: {}", dir, e.getMessage());
         }
     }
 }

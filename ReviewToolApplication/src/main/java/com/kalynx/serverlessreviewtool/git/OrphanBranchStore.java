@@ -69,7 +69,10 @@ public class OrphanBranchStore {
 
     private final String remoteUrl;
     private final Path bareDir;
-    private final Executor executor;
+    /** Serialises writes — prevents concurrent fast-import/push from the same JVM. */
+    private final Executor writeExecutor;
+    /** Handles reads concurrently; does NOT queue behind in-flight writes. */
+    private final Executor readExecutor;
     private final ScheduledExecutorService bgRefresher;
     private volatile boolean initialized = false;
 
@@ -86,11 +89,13 @@ public class OrphanBranchStore {
         this.remoteUrl = remoteUrl;
         String repoName = deriveRepoName(remoteUrl);
         this.bareDir = baseDir.resolve(repoName + ".reviews.git");
-        this.executor = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "OrphanBranchStore-" + repoName);
+        this.writeExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "OrphanBranchStore-write-" + repoName);
             t.setDaemon(true);
             return t;
         });
+        // Virtual threads: lightweight, no pool sizing needed, ideal for blocking subprocess I/O.
+        this.readExecutor = Executors.newVirtualThreadPerTaskExecutor();
         this.bgRefresher = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "OrphanBranchStore-bg-" + repoName);
             t.setDaemon(true);
@@ -118,7 +123,7 @@ public class OrphanBranchStore {
                 LOGGER.warn("readFile failed [{}/{}]: {}", reviewId, streamPath, e.getMessage());
                 return Optional.empty();
             }
-        }, executor);
+        }, readExecutor);
     }
 
     /**
@@ -143,7 +148,7 @@ public class OrphanBranchStore {
                 streamPaths.forEach(p -> empty.put(p, Optional.empty()));
                 return empty;
             }
-        }, executor);
+        }, readExecutor);
     }
 
     /**
@@ -166,7 +171,7 @@ public class OrphanBranchStore {
             } catch (Exception e) {
                 throw new RuntimeException("writeFiles failed for review " + reviewId, e);
             }
-        }, executor);
+        }, writeExecutor);
     }
 
     /**
@@ -182,7 +187,7 @@ public class OrphanBranchStore {
                 LOGGER.warn("listReviewIds failed: {}", e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, readExecutor);
     }
 
     /**
@@ -193,13 +198,15 @@ public class OrphanBranchStore {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 ensureInit();
+                long t0 = System.currentTimeMillis();
                 fetchTipCached();
+                LOGGER.debug("listCommentIds fetchTipCached {}ms for {}", System.currentTimeMillis() - t0, reviewId);
                 return listComments(reviewId);
             } catch (Exception e) {
                 LOGGER.warn("listCommentIds failed for {}: {}", reviewId, e.getMessage());
                 return List.of();
             }
-        }, executor);
+        }, readExecutor);
     }
 
     // -------------------------------------------------------------------------
@@ -212,9 +219,11 @@ public class OrphanBranchStore {
      */
     private void writeWithRetry(String reviewId, Map<String, byte[]> pathToContent, int retriesLeft)
             throws Exception {
+        long writeStart = System.currentTimeMillis();
         fetchTip(); // always fetch fresh before each attempt
-        // Local bare repo is now up to date — reads queued after this write can skip fetching.
+        // Local bare repo is now up to date — reads triggered by the push SSE skip fetching.
         lastFetchTimeMs = System.currentTimeMillis();
+        LOGGER.debug("writeWithRetry fetchTip {}ms for {}", lastFetchTimeMs - writeStart, reviewId);
 
         // Write each blob into the object store via git hash-object -w --stdin
         Map<String, String> pathToSha = new java.util.LinkedHashMap<>();
@@ -237,6 +246,7 @@ public class OrphanBranchStore {
                 throw new RuntimeException("Push repeatedly rejected for review " + reviewId);
             }
         }
+        LOGGER.debug("writeWithRetry total {}ms for {}", System.currentTimeMillis() - writeStart, reviewId);
     }
 
     /**
