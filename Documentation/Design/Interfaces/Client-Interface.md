@@ -66,6 +66,31 @@ direction LR
 
 ---
 
+### `GET /reviews/{reviewId}/comments`
+
+Returns the list of comment routing entries for a review. The client uses this on initial load to discover which `comment_id`s exist and in which repository clone to read them from. Comment content is always read from git, not from the indexer.
+
+See [`comments.md`](../comments.md) for full design rationale.
+
+**Auth:** Bearer token required.
+
+**Response**
+
+```mermaid
+classDiagram
+direction LR
+
+    class CommentsEntry {
+        +string repository_url
+        +string comment_id
+        +string last_updated
+    }
+```
+
+Response is an array of `CommentsEntry` — one entry per comment. The client uses `repository_url` + `comment_id` to read the three sub-streams from the correct clone: `reviews/{reviewId}/comments/{comment_id}/metadata`, `.../text`, and `.../status` on the `kalynx-reviews` orphan branch.
+
+---
+
 ### `GET /branches`
 
 Simple branch listing for typeahead and discovery. Keep this endpoint branch-focused and lightweight.
@@ -189,6 +214,52 @@ direction LR
 
 ---
 
+### `comment.added`
+
+One or more new comments (or replies) have been written to a review.
+
+```
+event: comment.added
+```
+
+```mermaid
+classDiagram
+direction LR
+    class CommentAddedEvent {
+        +string type
+        +string review_id
+        +string repository_url
+        +string comment_id
+    }
+```
+
+**Client action**: Read `reviews/{reviewId}/comments/{comment_id}/metadata`, `.../text`, and `.../status` from the `kalynx-reviews` orphan branch of the clone at `repository_url`. Insert or update that comment in the panel.
+
+---
+
+### `comment.updated`
+
+An existing comment's resolution state has changed.
+
+```
+event: comment.updated
+```
+
+```mermaid
+classDiagram
+direction LR
+    class CommentUpdatedEvent {
+        +string type
+        +string review_id
+        +string repository_url
+        +string comment_id
+    }
+```
+
+**Client action**: Read `reviews/{reviewId}/comments/{comment_id}/status` from the `kalynx-reviews` orphan branch of the clone at `repository_url`. Refresh that comment's resolved state in the panel.
+
+---
+
 ### `branch.deleted`
 
 A branch under review has been deleted from the repository.
@@ -242,10 +313,9 @@ On SSE disconnect, the client:
 
 ## Design Principles
 
- 
-
-- **Signal, not payload** — Events identify *what* changed. The client reads content from git.
+- **Signal, not payload** — Events identify *what* changed. The client fetches content after receiving a signal.
 - **Route signals to interested clients** — The indexer publishes small events keyed by repository/review and uses per-repository publishers so only subscribed clients are woken.
 - **Terminal reviews are quiet** — The indexer does not emit routine updates for reviews in terminal statuses (`COMPLETED`, `CANCELLED`) unless a meaningful change occurs.
 - **No client-to-indexer messages** — The channel is unidirectional. Clients write review data directly to git.
+- **Comments route via indexer, read from git** — `GET /reviews/{reviewId}/comments` returns routing keys only (`repository_url`, `comment_id`). Comment content is always read from the `kalynx-reviews` orphan branch clone — never stored in the indexer DB. The indexer tracks which `comment_id`s exist and where, so the client can target the correct clone without scanning all repositories. See [`comments.md`](../comments.md).
 
