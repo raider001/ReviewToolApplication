@@ -2,10 +2,10 @@
 
 ## Status Summary
 
-- ⬜ **M0** — `CommentIndexerClient`: query indexer for comment routing
-- ⬜ **M1** — Multi-repository comment load on review open
-- ⬜ **M2** — SSE: Handle `comment.added` / `comment.updated` events
-- ⬜ **M3** — Cleanup & Tests
+- ✅ **M0** — `CommentIndexerClient`: query indexer for comment routing
+- ✅ **M1** — Multi-repository comment load on review open
+- ✅ **M2** — SSE: Handle `comment.added` / `comment.updated` events
+- ✅ **M3** — Cleanup & Tests
 
 ---
 
