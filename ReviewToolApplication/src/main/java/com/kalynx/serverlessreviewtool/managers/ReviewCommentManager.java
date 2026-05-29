@@ -2,13 +2,18 @@ package com.kalynx.serverlessreviewtool.managers;
 
 import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
 import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
+import com.kalynx.serverlessreviewtool.indexer.CommentIndexerClient;
+import com.kalynx.serverlessreviewtool.indexer.CommentRoutingEntry;
+import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewComment;
 import com.kalynx.serverlessreviewtool.models.review.StreamEntry;
+import com.kalynx.swingtheme.theme.LoadingStateManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -22,60 +27,151 @@ public class ReviewCommentManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(ReviewCommentManager.class);
 
     private final ReviewBranchManagerFactory branchManagerFactory;
+    private final CommentIndexerClient commentIndexerClient;
+    private final RepositoryManager repositoryManager;
 
-    /**
-     * Constructs a ReviewCommentManager with the given branch manager factory.
-     *
-     * @param branchManagerFactory factory for creating per-repository orphan branch managers
-     */
-    public ReviewCommentManager(ReviewBranchManagerFactory branchManagerFactory) {
+    public ReviewCommentManager(ReviewBranchManagerFactory branchManagerFactory,
+                                CommentIndexerClient commentIndexerClient,
+                                RepositoryManager repositoryManager) {
         this.branchManagerFactory = branchManagerFactory;
+        this.commentIndexerClient = commentIndexerClient;
+        this.repositoryManager = repositoryManager;
     }
 
     /**
-     * Load all comments for a review from the given primary repository.
+     * Load all comments for a review. Queries the indexer for routing first; if the indexer is
+     * not configured or returns no entries, falls back to a direct scan of all known repositories.
      *
      * @param reviewId the review identifier
-     * @param primaryRepoName the name of the primary repository containing the review notes
-     * @return future completing with the list of loaded comments
+     * @return future completing with the merged list of comments across all repositories
      */
-    public CompletableFuture<List<ReviewComment>> loadCommentsFromKnownRepository(
-            String reviewId, String primaryRepoName) {
-        OrphanBranchReviewManager notesManager = branchManagerFactory.create(primaryRepoName);
-        long listCommentsStart = System.nanoTime();
+    public CompletableFuture<List<ReviewComment>> loadAllComments(String reviewId) {
+        if (reviewId == null || reviewId.isEmpty()) {
+            return CompletableFuture.completedFuture(new ArrayList<>());
+        }
 
-        return notesManager.listCommentIds(reviewId)
-            .thenCompose(commentIds -> {
-                LOGGER.info("TIMING [{}] listCommentIds (repo={}): {}ms",
-                    reviewId, primaryRepoName, elapsedMs(listCommentsStart));
+        List<CommentRoutingEntry> routing;
+        try {
+            routing = commentIndexerClient.getCommentRouting(reviewId);
+        } catch (Exception e) {
+            LOGGER.warn("Failed to get comment routing from indexer for review {}: {}", reviewId, e.getMessage());
+            routing = List.of();
+        }
 
-                if (commentIds.isEmpty()) {
-                    LOGGER.debug("No comments found for review: {}", reviewId);
-                    return CompletableFuture.completedFuture(new ArrayList<ReviewComment>());
+        if (!routing.isEmpty()) {
+            return loadFromRouting(reviewId, routing);
+        }
+
+        LOGGER.debug("No comment routing from indexer for review {}, falling back to direct scan", reviewId);
+        return loadFromKnownRepositories(reviewId);
+    }
+
+    private CompletableFuture<List<ReviewComment>> loadFromRouting(
+            String reviewId, List<CommentRoutingEntry> routing) {
+        Map<String, List<CommentRoutingEntry>> byRepo = routing.stream()
+            .collect(Collectors.groupingBy(CommentRoutingEntry::repositoryUrl));
+
+        List<CompletableFuture<List<ReviewComment>>> repoFutures = byRepo.entrySet().stream()
+            .map(entry -> {
+                String repoUrl = entry.getKey();
+                List<CommentRoutingEntry> entries = entry.getValue();
+                String repoName = findRepoNameByUrl(repoUrl);
+                if (repoName == null) {
+                    LOGGER.warn("No repository found for URL: {}, skipping {} comment(s)", repoUrl, entries.size());
+                    return CompletableFuture.completedFuture(List.<ReviewComment>of());
                 }
-
-                LOGGER.debug("Found {} comment threads for review: {}", commentIds.size(), reviewId);
-
-                long loadCommentsStart = System.nanoTime();
-                List<CompletableFuture<ReviewComment>> commentFutures = commentIds.stream()
-                    .map(commentId -> loadSingleComment(notesManager, reviewId, commentId))
-                    .toList();
-
-                return CompletableFuture.allOf(commentFutures.toArray(new CompletableFuture[0]))
-                    .thenApply(ignored -> {
-                        List<ReviewComment> comments = commentFutures.stream()
-                            .map(CompletableFuture::join)
-                            .filter(Objects::nonNull)
-                            .collect(Collectors.toList());
-                        LOGGER.info("TIMING [{}] loadComments ({} comments, parallel): {}ms",
-                            reviewId, comments.size(), elapsedMs(loadCommentsStart));
-                        return comments;
-                    });
+                OrphanBranchReviewManager notesManager = branchManagerFactory.create(repoName);
+                List<String> commentIds = entries.stream().map(CommentRoutingEntry::commentId).toList();
+                return notesManager.readAllComments(reviewId, commentIds)
+                    .thenApply(allData -> allData.entrySet().stream()
+                        .map(e -> buildCommentFromData(e.getKey(), e.getValue()))
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList()));
             })
+            .toList();
+
+        return CompletableFuture.allOf(repoFutures.toArray(new CompletableFuture[0]))
+            .thenApply(ignored -> repoFutures.stream()
+                .flatMap(f -> f.join().stream())
+                .collect(Collectors.toList()))
             .exceptionally(error -> {
-                LOGGER.error("Failed to load comments from repo {} for review {}: {}", primaryRepoName, reviewId, error.getMessage());
+                LOGGER.error("Failed to load comments from routing for review {}: {}", reviewId, error.getMessage());
                 return new ArrayList<>();
             });
+    }
+
+    private CompletableFuture<List<ReviewComment>> loadFromKnownRepositories(String reviewId) {
+        List<Repository> repos = repositoryManager.getRepositories();
+        if (repos.isEmpty()) {
+            return CompletableFuture.completedFuture(new ArrayList<>());
+        }
+
+        List<CompletableFuture<List<ReviewComment>>> repoFutures = repos.stream()
+            .map(repo -> {
+                OrphanBranchReviewManager notesManager = branchManagerFactory.create(repo.getName());
+                return notesManager.listCommentIds(reviewId)
+                    .thenCompose(commentIds -> {
+                        if (commentIds.isEmpty()) return CompletableFuture.completedFuture(List.<ReviewComment>of());
+                        return notesManager.readAllComments(reviewId, commentIds)
+                            .thenApply(allData -> allData.entrySet().stream()
+                                .map(e -> buildCommentFromData(e.getKey(), e.getValue()))
+                                .filter(Objects::nonNull)
+                                .collect(Collectors.toList()));
+                    })
+                    .exceptionally(e -> {
+                        LOGGER.debug("No comment ids found in repo {} for review {}", repo.getName(), reviewId);
+                        return List.of();
+                    });
+            })
+            .toList();
+
+        return CompletableFuture.allOf(repoFutures.toArray(new CompletableFuture[0]))
+            .thenApply(ignored -> repoFutures.stream()
+                .flatMap(f -> f.join().stream())
+                .collect(Collectors.toList()))
+            .exceptionally(error -> {
+                LOGGER.error("Failed to scan repositories for comments for review {}: {}", reviewId, error.getMessage());
+                return new ArrayList<>();
+            });
+    }
+
+    /**
+     * Reload a single comment by reading all three sub-streams from the named repository.
+     * Used by SSE event handlers to refresh a specific comment without a full reload.
+     *
+     * @param reviewId the review identifier
+     * @param repositoryUrl the URL of the repository containing the comment
+     * @param commentId the comment identifier
+     * @return future completing with the reloaded comment, or null if not found
+     */
+    public CompletableFuture<ReviewComment> reloadComment(String reviewId, String repositoryUrl, String commentId) {
+        if (reviewId == null || reviewId.isEmpty() || commentId == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        String repoName = repositoryUrl != null ? findRepoNameByUrl(repositoryUrl) : null;
+        if (repoName != null) {
+            return loadSingleComment(branchManagerFactory.create(repoName), reviewId, commentId);
+        }
+
+        LOGGER.debug("No repository matched URL '{}', scanning all repos for comment {}", repositoryUrl, commentId);
+        return findCommentInAnyRepository(reviewId, commentId);
+    }
+
+    private CompletableFuture<ReviewComment> findCommentInAnyRepository(String reviewId, String commentId) {
+        List<Repository> repos = repositoryManager.getRepositories();
+        if (repos.isEmpty()) return CompletableFuture.completedFuture(null);
+
+        List<CompletableFuture<ReviewComment>> futures = repos.stream()
+            .map(repo -> loadSingleComment(branchManagerFactory.create(repo.getName()), reviewId, commentId))
+            .toList();
+
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenApply(ignored -> futures.stream()
+                .map(CompletableFuture::join)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null));
     }
 
     /**
@@ -91,38 +187,31 @@ public class ReviewCommentManager {
         if (reviewId == null || reviewId.isEmpty() || repositoryName == null || comment == null) {
             return CompletableFuture.completedFuture(null);
         }
-
+        LoadingStateManager.getInstance().startLoading("Saving Comment");
         LOGGER.debug("Saving comment for review: {} (id: {})", reviewId, comment.getId());
 
         OrphanBranchReviewManager notesManager = branchManagerFactory.create(repositoryName);
         String commentType = comment.needsResolution() ? "review" : "comment";
 
-        CompletableFuture<Void> metadataFuture = notesManager.writeCommentMetadata(
-            reviewId, comment.getId(), comment.getAuthor(),
-            comment.getFilePath(), comment.getLineNumber(), comment.getLineNumber(), null
-        );
-        CompletableFuture<Void> textFuture = notesManager.writeCommentText(
-            reviewId, comment.getId(), comment.getAuthor(),
-            comment.getText(), comment.getParentId(), commentType
-        );
+        OrphanBranchReviewManager.CommentMetadata metadata =
+            new OrphanBranchReviewManager.CommentMetadata(
+                comment.getFilePath(), comment.getLineNumber(), comment.getLineNumber(), null);
+        OrphanBranchReviewManager.CommentTextData text =
+            new OrphanBranchReviewManager.CommentTextData(
+                comment.getText(), comment.getParentId(), commentType);
+        OrphanBranchReviewManager.CommentStatusData status =
+            (comment.needsResolution() || comment.isResolved())
+                ? new OrphanBranchReviewManager.CommentStatusData(
+                        comment.needsResolution(), comment.isResolved())
+                : null;
 
-        CompletableFuture<Void> saveFuture;
-        if (comment.needsResolution() || comment.isResolved()) {
-            CompletableFuture<Void> statusFuture = notesManager.writeCommentStatus(
-                reviewId, comment.getId(), comment.getAuthor(),
-                comment.needsResolution(), comment.isResolved()
-            );
-            saveFuture = CompletableFuture.allOf(metadataFuture, textFuture, statusFuture);
-        } else {
-            saveFuture = CompletableFuture.allOf(metadataFuture, textFuture);
-        }
-
-        return saveFuture
+        return notesManager.writeComment(reviewId, comment.getId(), comment.getAuthor(),
+                    metadata, text, status)
             .thenRun(() -> LOGGER.debug("Comment saved successfully for review: {} (id: {})", reviewId, comment.getId()))
             .exceptionally(error -> {
                 LOGGER.error("Failed to save comment for review: {} (id: {})", reviewId, comment.getId(), error);
                 return null;
-            });
+            }).whenComplete((ignored, error) -> LoadingStateManager.getInstance().stopLoading("Saving Comment"));
     }
 
     /**
@@ -156,6 +245,42 @@ public class ReviewCommentManager {
     }
 
     /**
+     * Writes the status stream for every comment in {@code comments} in a single commit+push.
+     * Use this instead of {@link #saveAllComments} when only resolution state has changed,
+     * to avoid N separate pushes (and N SSE events) for a batch resolve/unresolve action.
+     *
+     * @param reviewId       the review identifier
+     * @param repositoryName the repository containing the review notes
+     * @param comments       comments whose resolution state has changed
+     * @return future completing when all status streams are written in one push
+     */
+    public CompletableFuture<Void> resolveAllComments(String reviewId, String repositoryName,
+                                                       List<ReviewComment> comments) {
+        if (reviewId == null || reviewId.isEmpty() || repositoryName == null
+                || comments == null || comments.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        LOGGER.debug("Batch resolving {} comments for review: {}", comments.size(), reviewId);
+
+        OrphanBranchReviewManager notesManager = branchManagerFactory.create(repositoryName);
+        String editor = comments.getFirst().getAuthor();
+
+        List<OrphanBranchReviewManager.CommentStatusEntry> entries = comments.stream()
+            .map(c -> new OrphanBranchReviewManager.CommentStatusEntry(
+                    c.getId(), c.needsResolution(), c.isResolved()))
+            .toList();
+
+        return notesManager.writeAllCommentStatuses(reviewId, editor, entries)
+            .thenRun(() -> LOGGER.debug("Batch resolve written for {} comments in review: {}",
+                    comments.size(), reviewId))
+            .exceptionally(error -> {
+                LOGGER.error("Failed to batch-resolve comments for review: {}", reviewId, error);
+                return null;
+            });
+    }
+
+    /**
      * Save all provided comments for a review to git notes in the specified repository.
      *
      * @param reviewId the review identifier
@@ -184,64 +309,53 @@ public class ReviewCommentManager {
 
     private CompletableFuture<ReviewComment> loadSingleComment(
             OrphanBranchReviewManager notesManager, String reviewId, String commentId) {
-
-        CompletableFuture<List<StreamEntry<OrphanBranchReviewManager.CommentMetadata>>> metadataFuture =
-            notesManager.readCommentMetadata(reviewId, commentId);
-        CompletableFuture<List<StreamEntry<OrphanBranchReviewManager.CommentTextData>>> textFuture =
-            notesManager.readCommentText(reviewId, commentId);
-        CompletableFuture<List<StreamEntry<OrphanBranchReviewManager.CommentStatusData>>> statusFuture =
-            notesManager.readCommentStatus(reviewId, commentId);
-
-        return CompletableFuture.allOf(metadataFuture, textFuture, statusFuture)
-            .thenApply(ignored -> {
-                List<StreamEntry<OrphanBranchReviewManager.CommentMetadata>> metadata = metadataFuture.join();
-                List<StreamEntry<OrphanBranchReviewManager.CommentTextData>> textEntries = textFuture.join();
-                List<StreamEntry<OrphanBranchReviewManager.CommentStatusData>> statusEntries = statusFuture.join();
-
-                if (metadata.isEmpty() || textEntries.isEmpty()) {
-                    return null;
-                }
-
-                StreamEntry<OrphanBranchReviewManager.CommentMetadata> latestMetadata = metadata.getLast();
-                StreamEntry<OrphanBranchReviewManager.CommentTextData> firstText = textEntries.getFirst();
-
-                OrphanBranchReviewManager.CommentMetadata metaData = latestMetadata.data();
-                OrphanBranchReviewManager.CommentTextData textData = firstText.data();
-
-                ReviewComment comment = new ReviewComment(
-                    commentId,
-                    metaData.file(),
-                    metaData.line(),
-                    firstText.editor(),
-                    textData.text(),
-                    firstText.timestamp().toString(),
-                    textData.replyTo(),
-                    "review".equals(textData.type())
-                );
-
-                if (!statusEntries.isEmpty()) {
-                    StreamEntry<OrphanBranchReviewManager.CommentStatusData> latestStatus = statusEntries.getLast();
-                    OrphanBranchReviewManager.CommentStatusData statusData = latestStatus.data();
-
-                    if (statusData.needsResolution() != null) {
-                        comment.setNeedsResolution(statusData.needsResolution());
-                    }
-
-                    if (statusData.resolved() != null) {
-                        if (statusData.resolved()) {
-                            comment.markResolved(latestStatus.editor());
-                        } else {
-                            comment.markUnresolved();
-                        }
-                    }
-                }
-
-                return comment;
-            })
+        return notesManager.readAllComments(reviewId, List.of(commentId))
+            .thenApply(allData -> buildCommentFromData(commentId, allData.get(commentId)))
             .exceptionally(error -> {
                 LOGGER.error("Failed to load comment {}: {}", commentId, error.getMessage());
                 return null;
             });
+    }
+
+    private ReviewComment buildCommentFromData(String commentId,
+            OrphanBranchReviewManager.AllCommentData data) {
+        if (data == null) return null;
+        List<StreamEntry<OrphanBranchReviewManager.CommentMetadata>> metadata = data.metadata();
+        List<StreamEntry<OrphanBranchReviewManager.CommentTextData>> textEntries = data.text();
+        List<StreamEntry<OrphanBranchReviewManager.CommentStatusData>> statusEntries = data.status();
+
+        if (metadata.isEmpty() || textEntries.isEmpty()) return null;
+
+        StreamEntry<OrphanBranchReviewManager.CommentMetadata> latestMetadata = metadata.getLast();
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> firstText = textEntries.getFirst();
+        OrphanBranchReviewManager.CommentMetadata metaData = latestMetadata.data();
+        OrphanBranchReviewManager.CommentTextData textData = firstText.data();
+
+        ReviewComment comment = new ReviewComment(
+            commentId, metaData.file(), metaData.line(), firstText.editor(),
+            textData.text(), firstText.timestamp().toString(),
+            textData.replyTo(), "review".equals(textData.type())
+        );
+
+        if (!statusEntries.isEmpty()) {
+            StreamEntry<OrphanBranchReviewManager.CommentStatusData> latestStatus = statusEntries.getLast();
+            OrphanBranchReviewManager.CommentStatusData statusData = latestStatus.data();
+            if (statusData.needsResolution() != null) comment.setNeedsResolution(statusData.needsResolution());
+            if (statusData.resolved() != null) {
+                if (statusData.resolved()) comment.markResolved(latestStatus.editor());
+                else comment.markUnresolved();
+            }
+        }
+        return comment;
+    }
+
+    private String findRepoNameByUrl(String url) {
+        if (url == null) return null;
+        return repositoryManager.getRepositories().stream()
+            .filter(r -> url.equals(r.getUrl()))
+            .findFirst()
+            .map(Repository::getName)
+            .orElse(null);
     }
 
     private static long elapsedMs(long startNano) {

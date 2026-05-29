@@ -3,7 +3,9 @@ import com.kalynx.lwdi.DependencyInjector;
 import com.kalynx.serverlessreviewtool.configuration.AppSettings;
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
 import com.kalynx.serverlessreviewtool.git.*;
+import com.kalynx.serverlessreviewtool.indexer.CommentIndexerClient;
 import com.kalynx.serverlessreviewtool.indexer.IndexerEventSource;
+import com.kalynx.serverlessreviewtool.indexer.CommentSseEvent;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewChangeSetManager;
@@ -13,12 +15,15 @@ import com.kalynx.serverlessreviewtool.managers.ReviewItemManager;
 import com.kalynx.serverlessreviewtool.managers.UserManager;
 import com.kalynx.serverlessreviewtool.mockdata.GitRepositoryInitializer;
 import com.kalynx.serverlessreviewtool.models.Repository;
+import com.kalynx.serverlessreviewtool.models.ReviewComment;
+import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.User;
 import com.kalynx.serverlessreviewtool.plugin.UserPlugin;
 import com.kalynx.serverlessreviewtool.plugin.NotificationPlugin;
 import com.kalynx.serverlessreviewtool.plugin.RepositoryDescriptor;
 import com.kalynx.serverlessreviewtool.plugin.RepositoryListUpdate;
 import com.kalynx.serverlessreviewtool.ui.MainFrame;
+import com.kalynx.serverlessreviewtool.ui.review.InlineCommentDialog;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.ReviewPanelModel;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewselectionpanel.ReviewSelectionPanelModel;
 import com.kalynx.serverlessreviewtool.ui.models.reviewpanel.reviewformdialog.ReviewFormModels;
@@ -45,6 +50,7 @@ public class Main {
     private static final SettingsManager SETTINGS_MANAGER;
     private static final IndexerEventSource INDEXER_EVENT_SOURCE;
     private static final ReviewItemManager REVIEW_ITEM_MANAGER;
+    private static final ReviewCommentManager REVIEW_COMMENT_MANAGER;
     private static final ReviewContextManager REVIEW_CONTEXT_MANAGER;
     private static final UserManager USER_MANAGER;
     private static final PluginManager PLUGIN_MANAGER;
@@ -77,9 +83,10 @@ public class Main {
             DI.add(ReviewBranchManagerFactory.class, branchManagerFactory);
             SETTINGS_MANAGER = DI.inject(SettingsManager.class);
             INDEXER_EVENT_SOURCE = new IndexerEventSource(SETTINGS_MANAGER);
+            DI.inject(CommentIndexerClient.class);
             DI.inject(ReviewItemLoader.class);
             REVIEW_ITEM_MANAGER = DI.inject(ReviewItemManager.class);
-            DI.inject(ReviewCommentManager.class);
+            REVIEW_COMMENT_MANAGER = DI.inject(ReviewCommentManager.class);
             DI.inject(ReviewChangeSetManager.class);
             REVIEW_CONTEXT_MANAGER = DI.inject(ReviewContextManager.class);
             USER_MANAGER = DI.inject(UserManager.class);
@@ -124,6 +131,7 @@ public class Main {
         PLUGIN_MANAGER.addListenerToNotificationRepositoryUpdates(Main::onNotificationRepositoriesUpdated);
 
         INDEXER_EVENT_SOURCE.start(REVIEW_ITEM_MANAGER::applyNotificationUpdates);
+        INDEXER_EVENT_SOURCE.addCommentEventListener(Main::onCommentSseEvent);
 
         PLUGIN_MANAGER.initialize();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -165,6 +173,32 @@ public class Main {
             REVIEW_PANEL_MODEL.reviewDetailModel.reviewers.setValue(reviewContext.reviewers);
             REVIEW_PANEL_MODEL.commentsPanelModel.setComments(reviewContext.comments);
         });
+    }
+
+    private static void onCommentSseEvent(CommentSseEvent event) {
+        String activeReviewId = REVIEW_PANEL_MODEL.currentReviewId.getValue();
+        if (event.reviewId() == null || !event.reviewId().equals(activeReviewId)) return;
+
+        REVIEW_COMMENT_MANAGER.reloadComment(event.reviewId(), event.repositoryUrl(), event.commentId())
+            .thenAccept(comment -> {
+                if (comment == null) return;
+                SwingUtilities.invokeLater(() -> {
+                    ReviewContext ctx = REVIEW_CONTEXT_MANAGER.getReviewContext();
+                    List<ReviewComment> existing = REVIEW_PANEL_MODEL.commentsPanelModel.allComments.getValue();
+                    boolean inModel = existing.stream().anyMatch(c -> c.getId().equals(comment.getId()));
+                    boolean inCtx = ctx != null && ctx.comments.stream().anyMatch(c -> c.getId().equals(comment.getId()));
+                    if (inModel) {
+                        REVIEW_PANEL_MODEL.commentsPanelModel.updateComment(comment);
+                    } else {
+                        REVIEW_PANEL_MODEL.commentsPanelModel.addComment(comment);
+                    }
+                    if (ctx != null) {
+                        if (inCtx) ctx.updateComment(comment);
+                        else ctx.addComment(comment);
+                    }
+                    InlineCommentDialog.notifyAllCommentChanged();
+                });
+            });
     }
 
     private static void setupReviewFormModelUpdaters() {

@@ -165,6 +165,52 @@ public class OrphanBranchReviewManager {
     }
 
     // -------------------------------------------------------------------------
+    // Batch comment write — all streams for one comment in a single commit.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Writes metadata, text, and optionally status for a single comment in one commit+push.
+     * {@code statusData} may be {@code null} when neither needsResolution nor resolved is set.
+     */
+    public CompletableFuture<Void> writeComment(String reviewId, String commentId, String editor,
+                                                 CommentMetadata metadata,
+                                                 CommentTextData text,
+                                                 CommentStatusData status) {
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        put(files, reviewId, "comments/" + commentId + "/metadata", editor, metadata);
+        put(files, reviewId, "comments/" + commentId + "/text", editor, text);
+        if (status != null) {
+            put(files, reviewId, "comments/" + commentId + "/status", editor, status);
+        }
+        return store.writeFiles(reviewId, stripReviewPrefix(reviewId, files));
+    }
+
+    // -------------------------------------------------------------------------
+    // Batch comment-status write — single commit for N comments.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Writes the status stream for every comment in {@code comments} in a single commit+push.
+     * Use this instead of calling {@link #writeCommentStatus} N times when only resolution
+     * state has changed for multiple comments at once (e.g. "Mark all resolved").
+     */
+    public CompletableFuture<Void> writeAllCommentStatuses(String reviewId, String editor,
+                                                            List<CommentStatusEntry> comments) {
+        if (comments == null || comments.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        for (CommentStatusEntry e : comments) {
+            put(files, reviewId, "comments/" + e.commentId() + "/status", editor,
+                    new CommentStatusData(e.needsResolution(), e.resolved()));
+        }
+        return store.writeFiles(reviewId, stripReviewPrefix(reviewId, files));
+    }
+
+    /** Carries the per-comment data needed by {@link #writeAllCommentStatuses}. */
+    public record CommentStatusEntry(String commentId, Boolean needsResolution, Boolean resolved) {}
+
+    // -------------------------------------------------------------------------
     // Batch metadata save
     // -------------------------------------------------------------------------
 
@@ -242,6 +288,52 @@ public class OrphanBranchReviewManager {
      */
     public CompletableFuture<List<String>> listCommentIds(String reviewId) {
         return store.listCommentIds(reviewId);
+    }
+
+    /**
+     * Holds all three parsed sub-streams for one comment thread.
+     * Empty lists indicate the stream doesn't exist on the branch yet.
+     */
+    public record AllCommentData(
+        List<StreamEntry<CommentMetadata>> metadata,
+        List<StreamEntry<CommentTextData>> text,
+        List<StreamEntry<CommentStatusData>> status
+    ) {}
+
+    /**
+     * Reads all three sub-streams for every comment ID in {@code commentIds} using a single
+     * {@code git cat-file --batch} call. Replaces N×3 individual subprocess calls with one.
+     *
+     * @return future containing a map from comment ID to its parsed stream data;
+     *         comment IDs not found on the branch will have empty stream lists
+     */
+    public CompletableFuture<Map<String, AllCommentData>> readAllComments(String reviewId,
+                                                                           List<String> commentIds) {
+        if (commentIds == null || commentIds.isEmpty()) {
+            return CompletableFuture.completedFuture(new LinkedHashMap<>());
+        }
+        List<String> streamPaths = new ArrayList<>(commentIds.size() * 3);
+        for (String id : commentIds) {
+            streamPaths.add("comments/" + id + "/metadata");
+            streamPaths.add("comments/" + id + "/text");
+            streamPaths.add("comments/" + id + "/status");
+        }
+        return store.readAllFiles(reviewId, streamPaths)
+            .thenApply(blobs -> {
+                try {
+                    Map<String, AllCommentData> result = new LinkedHashMap<>();
+                    for (String id : commentIds) {
+                        result.put(id, new AllCommentData(
+                            parseField(blobs.get("comments/" + id + "/metadata"), CommentMetadata.class),
+                            parseField(blobs.get("comments/" + id + "/text"), CommentTextData.class),
+                            parseField(blobs.get("comments/" + id + "/status"), CommentStatusData.class)
+                        ));
+                    }
+                    return result;
+                } catch (IOException e) {
+                    throw new RuntimeException("readAllComments failed for " + reviewId, e);
+                }
+            });
     }
 
     // -------------------------------------------------------------------------

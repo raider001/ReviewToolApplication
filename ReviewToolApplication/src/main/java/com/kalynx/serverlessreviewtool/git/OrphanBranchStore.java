@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,7 +21,6 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -65,7 +65,6 @@ public class OrphanBranchStore {
     private static final Duration GIT_TIMEOUT = Duration.ofSeconds(60);
 
     private static final long FETCH_CACHE_TTL_MS = 30_000;
-    private static final long BG_REFRESH_INTERVAL_MS = FETCH_CACHE_TTL_MS - 5_000;
 
     private final String remoteUrl;
     private final Path bareDir;
@@ -73,7 +72,6 @@ public class OrphanBranchStore {
     private final Executor writeExecutor;
     /** Handles reads concurrently; does NOT queue behind in-flight writes. */
     private final Executor readExecutor;
-    private final ScheduledExecutorService bgRefresher;
     private volatile boolean initialized = false;
 
     private volatile long lastFetchTimeMs = 0;
@@ -96,13 +94,6 @@ public class OrphanBranchStore {
         });
         // Virtual threads: lightweight, no pool sizing needed, ideal for blocking subprocess I/O.
         this.readExecutor = Executors.newVirtualThreadPerTaskExecutor();
-        this.bgRefresher = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "OrphanBranchStore-bg-" + repoName);
-            t.setDaemon(true);
-            return t;
-        });
-        bgRefresher.scheduleAtFixedRate(
-                this::backgroundFetch, BG_REFRESH_INTERVAL_MS, BG_REFRESH_INTERVAL_MS, TimeUnit.MILLISECONDS);
     }
 
     // -------------------------------------------------------------------------
@@ -216,73 +207,58 @@ public class OrphanBranchStore {
     /**
      * Writes blobs, creates a commit via {@code git fast-import}, and pushes.
      * Retries on push rejection by re-fetching and rebuilding on the remote tip.
+     *
+     * <p>Skips the network fetch when the local tip is trusted (i.e. we pushed recently
+     * and no other client has had a chance to push in the meantime). A push rejection
+     * invalidates the trust so the retry always fetches fresh.
      */
     private void writeWithRetry(String reviewId, Map<String, byte[]> pathToContent, int retriesLeft)
             throws Exception {
         long writeStart = System.currentTimeMillis();
-        fetchTip(); // always fetch fresh before each attempt
-        // Local bare repo is now up to date — reads triggered by the push SSE skip fetching.
-        lastFetchTimeMs = System.currentTimeMillis();
-        LOGGER.debug("writeWithRetry fetchTip {}ms for {}", lastFetchTimeMs - writeStart, reviewId);
-
-        // Write each blob into the object store via git hash-object -w --stdin
-        Map<String, String> pathToSha = new java.util.LinkedHashMap<>();
-        for (Map.Entry<String, byte[]> entry : pathToContent.entrySet()) {
-            String sha = gitHashObject(entry.getValue());
-            pathToSha.put(entry.getKey(), sha);
+        if (System.currentTimeMillis() - lastFetchTimeMs >= FETCH_CACHE_TTL_MS) {
+            fetchTip();
+            lastFetchTimeMs = System.currentTimeMillis();
+            LOGGER.debug("writeWithRetry fetchTip {}ms for {}", lastFetchTimeMs - writeStart, reviewId);
+        } else {
+            LOGGER.debug("writeWithRetry skipping fetchTip (tip trusted) for {}", reviewId);
         }
 
-        // Commit all blobs in one shot via git fast-import
-        String fastImportStream = buildFastImportStream(reviewId, pathToSha);
+        // Commit all blobs in one shot via git fast-import with inline data.
+        // Blob hashing, tree building, and commit creation all happen inside the
+        // single fast-import process — no separate git hash-object calls needed.
+        String fastImportStream = buildFastImportStream(reviewId, pathToContent);
         gitWithStdin(fastImportStream, "git", "fast-import", "--quiet").join();
 
         // Push to remote
         boolean pushed = gitPush();
         if (!pushed) {
+            lastFetchTimeMs = 0; // concurrent remote push — force fresh fetch on retry
             if (retriesLeft > 0) {
                 LOGGER.debug("Push rejected for review '{}', retrying ({} left)", reviewId, retriesLeft);
                 writeWithRetry(reviewId, pathToContent, retriesLeft - 1);
             } else {
                 throw new RuntimeException("Push repeatedly rejected for review " + reviewId);
             }
+        } else {
+            lastFetchTimeMs = System.currentTimeMillis(); // local tip == remote tip
         }
         LOGGER.debug("writeWithRetry total {}ms for {}", System.currentTimeMillis() - writeStart, reviewId);
     }
 
     /**
-     * Writes a blob via {@code git hash-object -w --stdin} and returns its SHA-1.
-     */
-    private String gitHashObject(byte[] content) throws Exception {
-        String contentStr = new String(content, StandardCharsets.UTF_8);
-        CompletableFuture<String> f = new CompletableFuture<>();
-        ProcessUtils.runProcess("git", "hash-object", "-w", "--stdin")
-                .workingDirectory(bareDir)
-                .stdin(contentStr)
-                .timeout(GIT_TIMEOUT)
-                .onSuccess(out -> f.complete(out.trim()))
-                .onFailure(err -> f.completeExceptionally(
-                        new RuntimeException("git hash-object failed: " + err)))
-                .onTimeout(() -> f.completeExceptionally(
-                        new RuntimeException("git hash-object timed out")))
-                .runAsync();
-        return f.join();
-    }
-
-    /**
-     * Builds the git fast-import stream that creates one commit updating the specified blobs.
+     * Builds a git fast-import stream that creates one commit updating the specified blobs
+     * using inline data — no separate {@code git hash-object} calls are needed.
      *
-     * <p>When the branch already exists, resolves its current tip to a commit SHA and uses
-     * {@code from <sha>} so that only the explicitly listed files are changed and all other
-     * files under the branch are preserved.  Using the raw SHA (not the branch ref name)
-     * avoids git's "can't create a branch from itself" restriction.
+     * <p>Resolves the current branch tip to a raw SHA for the {@code from} line; using the
+     * SHA rather than the ref name avoids git's "can't create a branch from itself" restriction
+     * inside fast-import. When the branch does not yet exist ({@code tipSha} is {@code null}),
+     * the {@code from} line is omitted so fast-import starts a new orphan commit.
      *
-     * <p>When the branch does not yet exist, omitting the {@code from} line tells fast-import
-     * to start a new orphan commit.
+     * <p>Each blob is written with the {@code data <N>} inline form; {@code N} is the
+     * UTF-8 byte length so multi-byte characters are counted correctly.
      */
-    private String buildFastImportStream(String reviewId, Map<String, String> pathToSha)
+    private String buildFastImportStream(String reviewId, Map<String, byte[]> pathToContent)
             throws Exception {
-        // Resolve the branch to its current tip SHA (if it exists) so the fast-import
-        // "from" line uses the commit object, not the mutable ref name.
         String tipSha = gitRevParseTip(REVIEWS_BRANCH);
 
         String message = "Update reviews/" + reviewId + "\n";
@@ -297,11 +273,15 @@ public class OrphanBranchStore {
         if (tipSha != null) {
             sb.append("from ").append(tipSha).append("\n");
         }
-        for (Map.Entry<String, String> entry : pathToSha.entrySet()) {
-            sb.append("M 100644 ").append(entry.getValue())
-              .append(" reviews/").append(reviewId).append("/").append(entry.getKey()).append("\n");
+        for (Map.Entry<String, byte[]> entry : pathToContent.entrySet()) {
+            byte[] content = entry.getValue();
+            String contentStr = new String(content, StandardCharsets.UTF_8);
+            sb.append("M 100644 inline reviews/").append(reviewId).append("/")
+              .append(entry.getKey()).append("\n");
+            sb.append("data ").append(content.length).append("\n");
+            sb.append(contentStr).append("\n");
         }
-        sb.append("\n"); // blank line terminates the commit command
+        sb.append("\n");
         return sb.toString();
     }
 
@@ -377,7 +357,7 @@ public class OrphanBranchStore {
 
         // Drain stderr so the subprocess never blocks on it.
         CompletableFuture.runAsync(() -> {
-            try { process.getErrorStream().transferTo(java.io.OutputStream.nullOutputStream()); }
+            try { process.getErrorStream().transferTo(OutputStream.nullOutputStream()); }
             catch (IOException ignored) { }
         });
 
@@ -422,7 +402,6 @@ public class OrphanBranchStore {
             if (header.endsWith(" missing")) {
                 result.put(streamPath, Optional.empty());
             } else {
-                // Header format: "<sha> blob <size>"
                 int lastSpace = header.lastIndexOf(' ');
                 int size = Integer.parseInt(header.substring(lastSpace + 1));
                 byte[] content = Arrays.copyOfRange(output, pos, pos + size);
@@ -535,24 +514,6 @@ public class OrphanBranchStore {
         try {
             fetchTip();
             lastFetchTimeMs = System.currentTimeMillis();
-        } finally {
-            fetchInProgress.set(false);
-        }
-    }
-
-    /**
-     * Runs proactively on a background thread every {@value #BG_REFRESH_INTERVAL_MS} ms so that
-     * the TTL never expires during normal interactive use, eliminating blocking fetches on reads.
-     */
-    private void backgroundFetch() {
-        if (!initialized) return;
-        if (!fetchInProgress.compareAndSet(false, true)) return;
-        try {
-            fetchTip();
-            lastFetchTimeMs = System.currentTimeMillis();
-            LOGGER.debug("Background fetch completed for {}", remoteUrl);
-        } catch (Exception e) {
-            LOGGER.debug("Background fetch soft error for {}: {}", remoteUrl, e.getMessage());
         } finally {
             fetchInProgress.set(false);
         }

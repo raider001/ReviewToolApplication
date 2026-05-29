@@ -251,7 +251,7 @@ public class ReviewMetadataLoader {
                 : new ArrayList<>();
 
         CompletableFuture<List<com.kalynx.serverlessreviewtool.models.ReviewComment>> commentsFuture = includeComments
-            ? commentManager.loadCommentsFromKnownRepository(reviewId, primaryRepoName)
+            ? commentManager.loadAllComments(reviewId)
             : CompletableFuture.completedFuture(existingComments);
 
         long readAllMetadataStart = System.nanoTime();

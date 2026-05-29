@@ -45,9 +45,13 @@ public class IndexerEventSource {
     private final SettingsManager settingsManager;
     private final HttpClient http;
 
+    private static final Set<String> COMMENT_EVENT_TYPES = Set.of(
+        "REVIEW_COMMENT_ADDED", "REVIEW_COMMENT_UPDATED", "comment.added", "comment.updated");
+
     private volatile Thread sseThread;
     private volatile List<String> lastFetchedBranches = List.of();
     private final Set<Consumer<List<String>>> branchListeners = new HashSet<>();
+    private final Set<Consumer<CommentSseEvent>> commentListeners = new HashSet<>();
 
     public IndexerEventSource(SettingsManager settingsManager) {
         this(settingsManager, HttpClient.newHttpClient());
@@ -66,6 +70,18 @@ public class IndexerEventSource {
      */
     public void start(Consumer<ReviewListUpdate[]> listener) {
         settingsManager.addIndexerUrlListener(url -> handleUrlChange(url, listener));
+    }
+
+    /**
+     * Registers a listener that is called when a {@code REVIEW_COMMENT_ADDED} or
+     * {@code REVIEW_COMMENT_UPDATED} SSE event arrives. The listener receives a
+     * {@link CommentSseEvent} with the {@code reviewId}, {@code repositoryUrl}, and
+     * {@code commentId} extracted from the event payload.
+     *
+     * @param listener consumer that receives comment SSE events
+     */
+    public void addCommentEventListener(Consumer<CommentSseEvent> listener) {
+        commentListeners.add(listener);
     }
 
     /**
@@ -157,6 +173,12 @@ public class IndexerEventSource {
     private void dispatchFrame(SseFrame frame, Consumer<ReviewListUpdate[]> listener) {
         LOGGER.info("[SSE] Frame received: eventType='{}' dataLength={}",
                 frame.eventType, frame.data != null ? frame.data.length() : 0);
+
+        if (COMMENT_EVENT_TYPES.contains(frame.eventType)) {
+            dispatchCommentFrame(frame);
+            return;
+        }
+
         ReviewUpdateType type = mapEventType(frame.eventType);
         if (type == null) {
             LOGGER.info("[SSE] Ignoring unrecognised event type '{}'", frame.eventType);
@@ -183,6 +205,22 @@ public class IndexerEventSource {
             listener.accept(new ReviewListUpdate[]{update});
         } catch (Exception e) {
             LOGGER.warn("Failed to parse SSE event data: {}", e.getMessage());
+        }
+    }
+
+    private void dispatchCommentFrame(SseFrame frame) {
+        try {
+            JsonObject obj = JsonParser.parseString(frame.data).getAsJsonObject();
+            String reviewId = getString(obj, "review_id");
+            String repositoryUrl = getString(obj, "repository_url");
+            String commentId = getString(obj, "comment_id");
+
+            LOGGER.info("[SSE] Dispatching comment event: type='{}' reviewId='{}' commentId='{}'",
+                frame.eventType, reviewId, commentId);
+            CommentSseEvent event = new CommentSseEvent(frame.eventType, reviewId, repositoryUrl, commentId);
+            commentListeners.forEach(l -> l.accept(event));
+        } catch (Exception e) {
+            LOGGER.warn("Failed to parse SSE comment event data: {}", e.getMessage());
         }
     }
 
@@ -281,12 +319,11 @@ public class IndexerEventSource {
     private ReviewUpdateType mapEventType(String eventType) {
         if (eventType == null) return null;
         return switch (eventType) {
-            case "REVIEW_CREATED"                                                     -> ReviewUpdateType.CREATED;
+            case "REVIEW_CREATED"                -> ReviewUpdateType.CREATED;
             case "REVIEW_UPDATED", "REVIEW_CLOSED",
-                 "REVIEW_COMMENT_ADDED", "REVIEW_COMMENT_UPDATED"                    -> ReviewUpdateType.UPDATED;
-            case "BRANCH_UPDATED"                                                     -> ReviewUpdateType.UPDATED;
-            case "BRANCH_DELETED"                                                     -> ReviewUpdateType.DELETED;
-            default                                                                   -> null;
+                 "BRANCH_UPDATED"               -> ReviewUpdateType.UPDATED;
+            case "BRANCH_DELETED"               -> ReviewUpdateType.DELETED;
+            default                             -> null;
         };
     }
 

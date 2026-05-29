@@ -31,6 +31,7 @@ public class ReviewCloneManagerImpl implements ReviewCloneManager {
     private static final Logger LOG = LoggerFactory.getLogger(ReviewCloneManagerImpl.class);
     private static final Duration CLONE_TIMEOUT = Duration.ofMinutes(3);
     private static final Duration CMD_TIMEOUT = Duration.ofSeconds(60);
+    private static final long REFRESH_TTL_MS = 30_000L;
 
     private final RepositoryManager repositoryManager;
     private final Path tempBase;
@@ -38,6 +39,7 @@ public class ReviewCloneManagerImpl implements ReviewCloneManager {
     /** Futures keyed by repoName — multiple callers share the same in-flight clone future. */
     private final ConcurrentHashMap<String, CompletableFuture<Path>> cloneFutures =
             new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> lastRefreshTimeMs = new ConcurrentHashMap<>();
 
     public ReviewCloneManagerImpl(RepositoryManager repositoryManager) {
         this.repositoryManager = repositoryManager;
@@ -107,10 +109,19 @@ public class ReviewCloneManagerImpl implements ReviewCloneManager {
 
     @Override
     public CompletableFuture<Void> refresh(String repoName) {
+        long now = System.currentTimeMillis();
+        Long last = lastRefreshTimeMs.get(repoName);
+        if (last != null && now - last < REFRESH_TTL_MS) {
+            LOG.debug("Skipping refresh for '{}' (within {}ms TTL)", repoName, REFRESH_TTL_MS);
+            return CompletableFuture.completedFuture(null);
+        }
         return getOrCreateClone(repoName)
                 .thenCompose(clonePath ->
                         runGit(clonePath, CLONE_TIMEOUT, "fetch", "--filter=blob:none", "origin"))
-                .thenApply(_ -> null);
+                .thenApply(_ -> {
+                    lastRefreshTimeMs.put(repoName, System.currentTimeMillis());
+                    return null;
+                });
     }
 
     // -------------------------------------------------------------------------

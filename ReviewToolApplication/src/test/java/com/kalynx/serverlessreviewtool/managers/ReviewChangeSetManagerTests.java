@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
+import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
 import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.models.FileChangeType;
 import com.kalynx.serverlessreviewtool.models.Repository;
@@ -34,20 +34,20 @@ class ReviewChangeSetManagerTests {
     private static final String REVIEW_BRANCH = "feature/my-feature";
     private static final String BASE_BRANCH = "main";
 
-    private Git git;
+    private ReviewCloneManager cloneManager;
     private OrphanBranchReviewManager notesManager;
     private ReviewChangeSetManager changeSetManager;
 
     @BeforeEach
     void setUp() {
-        git = mock(Git.class);
+        cloneManager = mock(ReviewCloneManager.class);
         notesManager = mock(OrphanBranchReviewManager.class);
         ReviewBranchManagerFactory factory = _ -> notesManager;
-        changeSetManager = new ReviewChangeSetManager(git, factory);
+        changeSetManager = new ReviewChangeSetManager(cloneManager, factory);
 
-        when(git.getDefaultBranch(anyString())).thenReturn(CompletableFuture.completedFuture("main"));
+        when(cloneManager.getDefaultBranch(anyString())).thenReturn(CompletableFuture.completedFuture("main"));
 
-        when(git.executeAsync(anyString(), eq("rev-parse"), eq("--verify"), any()))
+        when(cloneManager.execute(anyString(), eq("rev-parse"), eq("--verify"), any()))
             .thenReturn(CompletableFuture.completedFuture("abc123"));
     }
 
@@ -80,9 +80,9 @@ class ReviewChangeSetManagerTests {
 
     @Test
     void loadFilesForReview_refResolvesAndDiffReturnsFiles_parsesStatusAndPath() throws Exception {
-        when(git.executeAsync(eq(REPO), eq("rev-parse"), eq("--verify"), eq("origin/" + REVIEW_BRANCH)))
+        when(cloneManager.execute(eq(REPO), eq("rev-parse"), eq("--verify"), eq("origin/" + REVIEW_BRANCH)))
             .thenReturn(CompletableFuture.completedFuture("def456"));
-        when(git.listChangedFiles(eq(REPO), anyString(), anyString()))
+        when(cloneManager.listChangedFiles(eq(REPO), anyString(), anyString()))
             .thenReturn(CompletableFuture.completedFuture(List.of("A src/Main.java", "M src/Foo.java", "D src/Old.java")));
 
         List<ReviewFile> result = changeSetManager.loadFilesForReview(REPO, REVIEW_BRANCH, BASE_BRANCH)
@@ -102,9 +102,9 @@ class ReviewChangeSetManagerTests {
 
     @Test
     void loadFilesForReview_renamedFile_parsedAsRenamed() throws Exception {
-        when(git.executeAsync(eq(REPO), eq("rev-parse"), eq("--verify"), eq("origin/" + REVIEW_BRANCH)))
+        when(cloneManager.execute(eq(REPO), eq("rev-parse"), eq("--verify"), eq("origin/" + REVIEW_BRANCH)))
             .thenReturn(CompletableFuture.completedFuture("def456"));
-        when(git.listChangedFiles(eq(REPO), anyString(), anyString()))
+        when(cloneManager.listChangedFiles(eq(REPO), anyString(), anyString()))
             .thenReturn(CompletableFuture.completedFuture(List.of("R src/Renamed.java")));
 
         List<ReviewFile> result = changeSetManager.loadFilesForReview(REPO, REVIEW_BRANCH, BASE_BRANCH)
@@ -189,9 +189,9 @@ class ReviewChangeSetManagerTests {
     void loadFilesFromReviewCommits_validRepos_combinesFiles() throws Exception {
         Repository repo = new Repository(REPO, "", "file:///repo");
 
-        when(git.executeAsync(eq(REPO), eq("rev-parse"), eq("--verify"), any()))
+        when(cloneManager.execute(eq(REPO), eq("rev-parse"), eq("--verify"), any()))
             .thenReturn(CompletableFuture.completedFuture("sha123"));
-        when(git.listChangedFiles(eq(REPO), anyString(), anyString()))
+        when(cloneManager.listChangedFiles(eq(REPO), anyString(), anyString()))
             .thenReturn(CompletableFuture.completedFuture(List.of("M src/Foo.java")));
 
         List<ReviewFile> result = changeSetManager.loadFilesFromReviewCommits(
@@ -208,9 +208,9 @@ class ReviewChangeSetManagerTests {
         String newestHash = "deadbeef1";
         String oldestHash = "abc123def";
 
-        when(git.executeAsync(eq(REPO), eq("rev-parse"), eq("--verify"), eq(oldestHash + "^")))
+        when(cloneManager.execute(eq(REPO), eq("rev-parse"), eq("--verify"), eq(oldestHash + "^")))
             .thenReturn(CompletableFuture.completedFuture(oldestHash + "^resolved"));
-        when(git.listChangedFiles(eq(REPO), eq(oldestHash + "^"), eq(newestHash)))
+        when(cloneManager.listChangedFiles(eq(REPO), eq(oldestHash + "^"), eq(newestHash)))
             .thenReturn(CompletableFuture.completedFuture(List.of("A src/NewFile.java")));
 
         List<ReviewFile> result = changeSetManager.loadFilesFromStoredReviewCommits(
@@ -274,9 +274,9 @@ class ReviewChangeSetManagerTests {
 
     @Test
     void loadFilesForReview_unknownStatusChar_defaultsToModified() throws Exception {
-        when(git.executeAsync(eq(REPO), eq("rev-parse"), eq("--verify"), eq("origin/" + REVIEW_BRANCH)))
+        when(cloneManager.execute(eq(REPO), eq("rev-parse"), eq("--verify"), eq("origin/" + REVIEW_BRANCH)))
             .thenReturn(CompletableFuture.completedFuture("def456"));
-        when(git.listChangedFiles(eq(REPO), anyString(), anyString()))
+        when(cloneManager.listChangedFiles(eq(REPO), anyString(), anyString()))
             .thenReturn(CompletableFuture.completedFuture(List.of("X src/Unknown.java")));
 
         List<ReviewFile> result = changeSetManager.loadFilesForReview(REPO, REVIEW_BRANCH, BASE_BRANCH)
@@ -288,9 +288,9 @@ class ReviewChangeSetManagerTests {
 
     @Test
     void loadFilesForReview_malformedLineNoSpace_defaultsToModified() throws Exception {
-        when(git.executeAsync(eq(REPO), eq("rev-parse"), eq("--verify"), eq("origin/" + REVIEW_BRANCH)))
+        when(cloneManager.execute(eq(REPO), eq("rev-parse"), eq("--verify"), eq("origin/" + REVIEW_BRANCH)))
             .thenReturn(CompletableFuture.completedFuture("def456"));
-        when(git.listChangedFiles(eq(REPO), anyString(), anyString()))
+        when(cloneManager.listChangedFiles(eq(REPO), anyString(), anyString()))
             .thenReturn(CompletableFuture.completedFuture(List.of("malformed")));
 
         List<ReviewFile> result = changeSetManager.loadFilesForReview(REPO, REVIEW_BRANCH, BASE_BRANCH)
@@ -303,9 +303,9 @@ class ReviewChangeSetManagerTests {
 
     @Test
     void loadFilesForReview_reviewBranchNotInRepo_returnsEmptyList() throws Exception {
-        when(git.executeAsync(eq(REPO), eq("rev-parse"), eq("--verify"), eq(REVIEW_BRANCH)))
+        when(cloneManager.execute(eq(REPO), eq("rev-parse"), eq("--verify"), eq(REVIEW_BRANCH)))
             .thenReturn(CompletableFuture.failedFuture(new RuntimeException("not found")));
-        when(git.executeAsync(eq(REPO), eq("rev-parse"), eq("--verify"), eq("origin/" + REVIEW_BRANCH)))
+        when(cloneManager.execute(eq(REPO), eq("rev-parse"), eq("--verify"), eq("origin/" + REVIEW_BRANCH)))
             .thenReturn(CompletableFuture.failedFuture(new RuntimeException("not found")));
 
         List<ReviewFile> result = changeSetManager.loadFilesForReview(REPO, REVIEW_BRANCH, BASE_BRANCH)

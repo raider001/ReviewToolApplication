@@ -100,6 +100,15 @@ public class ReviewContext {
         comments.add(comment);
     }
 
+    public void updateComment(ReviewComment updated) {
+        for (int i = 0; i < comments.size(); i++) {
+            if (comments.get(i).getId().equals(updated.getId())) {
+                comments.set(i, updated);
+                return;
+            }
+        }
+    }
+
     public List<ReviewComment> getCommentsForFile(String filePath) {
         return comments.stream()
             .filter(c -> c.getFilePath().equals(filePath))

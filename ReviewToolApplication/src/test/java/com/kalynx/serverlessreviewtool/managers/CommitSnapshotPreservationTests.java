@@ -4,6 +4,7 @@ import com.kalynx.serverlessreviewtool.git.GitImpl;
 import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
 import com.kalynx.serverlessreviewtool.git.OrphanBranchStore;
 import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
+import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
 import com.kalynx.serverlessreviewtool.mockdata.GitRepositoryInitializer;
 import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
@@ -96,7 +97,7 @@ class CommitSnapshotPreservationTests {
         orphanManager = new OrphanBranchReviewManager(orphanStore, REPO);
 
         ReviewBranchManagerFactory factory = _ -> orphanManager;
-        changeSetManager = new ReviewChangeSetManager(git, factory);
+        changeSetManager = new ReviewChangeSetManager(gitAsCloneManager(git), factory);
 
         Path remoteUrl = GitRepositoryInitializer.getBasePath().resolve(REPO);
         git.cloneRepository("file:///" + remoteUrl.toString().replace("\\", "/"))
@@ -426,6 +427,29 @@ class CommitSnapshotPreservationTests {
         runGitCommand(workdir, "git", "merge", "--no-ff", featureBranch,
             "-m", "Merge branch '" + featureBranch + "' into master");
         runGitCommand(workdir, "git", "push", "origin", "master");
+    }
+
+    private static ReviewCloneManager gitAsCloneManager(GitImpl git) {
+        return new ReviewCloneManager() {
+            public java.util.concurrent.CompletableFuture<Void> ensureClone(String r) {
+                return java.util.concurrent.CompletableFuture.completedFuture(null);
+            }
+            public java.util.concurrent.CompletableFuture<String> execute(String r, String... args) {
+                return git.executeAsync(r, args);
+            }
+            public java.util.concurrent.CompletableFuture<String> getDefaultBranch(String r) {
+                return git.getDefaultBranch(r);
+            }
+            public java.util.concurrent.CompletableFuture<List<String>> listCommits(String r, String ref, int n) {
+                return git.listCommits(r, ref, n);
+            }
+            public java.util.concurrent.CompletableFuture<List<String>> listChangedFiles(String r, String a, String b) {
+                return git.listChangedFiles(r, a, b);
+            }
+            public java.util.concurrent.CompletableFuture<Void> refresh(String r) {
+                return git.fetch(r);
+            }
+        };
     }
 
     private void runGitCommand(Path workingDir, String... command) throws Exception {

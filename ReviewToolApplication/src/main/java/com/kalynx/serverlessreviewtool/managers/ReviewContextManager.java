@@ -92,6 +92,22 @@ public class ReviewContextManager {
     }
 
     /**
+     * Writes only the status stream for each comment in a single commit+push.
+     * Use this instead of {@link #saveAllComments} when only resolution state has changed.
+     */
+    public CompletableFuture<Void> resolveAllComments(String reviewId,
+                                                       List<com.kalynx.serverlessreviewtool.models.ReviewComment> comments) {
+        if (reviewId == null || reviewId.isEmpty() || comments == null || comments.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        if (currentReviewContext == null || currentReviewContext.repositories.isEmpty()) {
+            LOGGER.warn("No review context or repositories, cannot resolve comments");
+            return CompletableFuture.completedFuture(null);
+        }
+        return commentManager.resolveAllComments(reviewId, currentReviewContext.repositories.getFirst().getName(), comments);
+    }
+
+    /**
      * Save all comments for a review to git notes.
      *
      * @param reviewId the review identifier

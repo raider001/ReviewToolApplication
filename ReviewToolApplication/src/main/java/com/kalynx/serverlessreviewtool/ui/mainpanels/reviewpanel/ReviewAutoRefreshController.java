@@ -80,16 +80,10 @@ public class ReviewAutoRefreshController {
     private boolean isRelevantToCurrentReview(ReviewListUpdate update,
                                               String activeReviewId,
                                               Set<String> activeRepositories) {
-        if (activeReviewId.equals(update.reviewId())) {
-            return true;
-        }
-        if (update.primaryRepository() != null && activeRepositories.contains(update.primaryRepository())) {
-            return true;
-        }
-        if (update.repositories() == null || update.repositories().isEmpty()) {
-            return false;
-        }
-        return update.repositories().stream().anyMatch(activeRepositories::contains);
+        // Require an explicit reviewId match. Events without a reviewId (e.g. BRANCH_UPDATED
+        // from an orphan-branch push) cannot be attributed to a specific review and are
+        // handled by ReviewItemManager alone — they must not trigger a full panel reload.
+        return update.reviewId() != null && activeReviewId.equals(update.reviewId());
     }
 
     private void triggerAutoRefreshForOpenReview() {

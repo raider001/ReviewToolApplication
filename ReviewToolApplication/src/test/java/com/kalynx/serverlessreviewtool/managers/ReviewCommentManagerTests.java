@@ -2,7 +2,11 @@ package com.kalynx.serverlessreviewtool.managers;
 
 import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
 import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
+import com.kalynx.serverlessreviewtool.indexer.CommentIndexerClient;
+import com.kalynx.serverlessreviewtool.indexer.CommentRoutingEntry;
+import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewComment;
+import com.kalynx.serverlessreviewtool.plugin.RepositoryDescriptor;
 import com.kalynx.serverlessreviewtool.models.review.StreamEntry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,15 +34,20 @@ class ReviewCommentManagerTests {
 
     private static final String REVIEW_ID = "test-review-001";
     private static final String REPO_NAME = "my-repo";
+    private static final String REPO_URL = "file:///my-repo";
 
     private OrphanBranchReviewManager notesManager;
     private ReviewCommentManager commentManager;
+    private CommentIndexerClient indexerClient;
+    private RepositoryManager repositoryManager;
 
     @BeforeEach
     void setUp() {
         notesManager = mock(OrphanBranchReviewManager.class);
+        indexerClient = mock(CommentIndexerClient.class);
+        repositoryManager = new RepositoryManager();
         ReviewBranchManagerFactory factory = _ -> notesManager;
-        commentManager = new ReviewCommentManager(factory);
+        commentManager = new ReviewCommentManager(factory, indexerClient, repositoryManager);
 
         when(notesManager.writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any()))
             .thenReturn(CompletableFuture.completedFuture(null));
@@ -118,75 +127,95 @@ class ReviewCommentManagerTests {
     }
 
     @Test
-    void loadCommentsFromKnownRepository_noCommentIds_returnsEmptyList() throws Exception {
-        when(notesManager.listCommentIds(REVIEW_ID)).thenReturn(CompletableFuture.completedFuture(List.of()));
+    void reloadComment_commentMissingMetadata_returnsNull() throws Exception {
+        repositoryManager.setRepositoriesFromNotification(
+            List.of(new RepositoryDescriptor(REPO_NAME, REPO_URL)));
 
-        List<ReviewComment> result = commentManager.loadCommentsFromKnownRepository(REVIEW_ID, REPO_NAME)
+        String commentId = "c-no-meta";
+        OrphanBranchReviewManager.CommentTextData text =
+            new OrphanBranchReviewManager.CommentTextData("text", null, "comment");
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry =
+            new StreamEntry<>("t1", Instant.now(), "dev", text);
+
+        when(notesManager.readCommentMetadata(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(notesManager.readCommentText(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
+        when(notesManager.readCommentStatus(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of()));
+
+        ReviewComment result = commentManager.reloadComment(REVIEW_ID, REPO_URL, commentId)
+            .get(2, TimeUnit.SECONDS);
+
+        assertNull(result);
+    }
+
+    @Test
+    void reloadComment_withStatusEntryResolved_marksCommentResolved() throws Exception {
+        repositoryManager.setRepositoriesFromNotification(
+            List.of(new RepositoryDescriptor(REPO_NAME, REPO_URL)));
+
+        String commentId = "c-resolved";
+        OrphanBranchReviewManager.CommentMetadata meta =
+            new OrphanBranchReviewManager.CommentMetadata("X.java", 1, 1, null);
+        OrphanBranchReviewManager.CommentTextData text =
+            new OrphanBranchReviewManager.CommentTextData("text", null, "review");
+        OrphanBranchReviewManager.CommentStatusData status =
+            new OrphanBranchReviewManager.CommentStatusData(true, true);
+        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry =
+            new StreamEntry<>("m1", Instant.now(), "alice", meta);
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry =
+            new StreamEntry<>("t1", Instant.now(), "alice", text);
+        StreamEntry<OrphanBranchReviewManager.CommentStatusData> statusEntry =
+            new StreamEntry<>("s1", Instant.now(), "bob", status);
+
+        when(notesManager.readCommentMetadata(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
+        when(notesManager.readCommentText(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
+        when(notesManager.readCommentStatus(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of(statusEntry)));
+
+        ReviewComment result = commentManager.reloadComment(REVIEW_ID, REPO_URL, commentId)
             .get(2, TimeUnit.SECONDS);
 
         assertNotNull(result);
-        assertTrue(result.isEmpty());
+        assertTrue(result.isResolved());
+        assertTrue(result.needsResolution());
     }
 
     @Test
-    void loadCommentsFromKnownRepository_withOneComment_loadsAndAssembles() throws Exception {
-        String commentId = UUID.randomUUID().toString();
-        OrphanBranchReviewManager.CommentMetadata meta = new OrphanBranchReviewManager.CommentMetadata("Foo.java", 7, 7, null);
-        OrphanBranchReviewManager.CommentTextData text = new OrphanBranchReviewManager.CommentTextData("hello world", null, "comment");
-        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry = new StreamEntry<>("id1", Instant.now(), "alice", meta);
-        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry = new StreamEntry<>("id2", Instant.now(), "alice", text);
+    void reloadComment_withStatusEntryUnresolved_marksCommentUnresolved() throws Exception {
+        repositoryManager.setRepositoriesFromNotification(
+            List.of(new RepositoryDescriptor(REPO_NAME, REPO_URL)));
 
-        when(notesManager.listCommentIds(REVIEW_ID)).thenReturn(CompletableFuture.completedFuture(List.of(commentId)));
-        when(notesManager.readCommentMetadata(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
-        when(notesManager.readCommentText(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
-        when(notesManager.readCommentStatus(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of()));
+        String commentId = "c-unresolved";
+        OrphanBranchReviewManager.CommentMetadata meta =
+            new OrphanBranchReviewManager.CommentMetadata("X.java", 1, 1, null);
+        OrphanBranchReviewManager.CommentTextData text =
+            new OrphanBranchReviewManager.CommentTextData("text", null, "review");
+        OrphanBranchReviewManager.CommentStatusData status =
+            new OrphanBranchReviewManager.CommentStatusData(true, false);
+        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry =
+            new StreamEntry<>("m1", Instant.now(), "alice", meta);
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry =
+            new StreamEntry<>("t1", Instant.now(), "alice", text);
+        StreamEntry<OrphanBranchReviewManager.CommentStatusData> statusEntry =
+            new StreamEntry<>("s1", Instant.now(), "bob", status);
 
-        List<ReviewComment> result = commentManager.loadCommentsFromKnownRepository(REVIEW_ID, REPO_NAME)
+        when(notesManager.readCommentMetadata(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
+        when(notesManager.readCommentText(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
+        when(notesManager.readCommentStatus(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of(statusEntry)));
+
+        ReviewComment result = commentManager.reloadComment(REVIEW_ID, REPO_URL, commentId)
             .get(2, TimeUnit.SECONDS);
 
-        assertEquals(1, result.size());
-        assertEquals(commentId, result.getFirst().getId());
-        assertEquals("Foo.java", result.getFirst().getFilePath());
-        assertEquals(7, result.getFirst().getLineNumber());
-        assertEquals("alice", result.getFirst().getAuthor());
-        assertEquals("hello world", result.getFirst().getText());
-    }
-
-    @Test
-    void loadCommentsFromKnownRepository_withMultipleComments_loadsAll() throws Exception {
-        String id1 = UUID.randomUUID().toString();
-        String id2 = UUID.randomUUID().toString();
-        OrphanBranchReviewManager.CommentMetadata meta = new OrphanBranchReviewManager.CommentMetadata("X.java", 1, 1, null);
-        OrphanBranchReviewManager.CommentTextData text = new OrphanBranchReviewManager.CommentTextData("ok", null, "comment");
-        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry = new StreamEntry<>("m1", Instant.now(), "dev", meta);
-        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "dev", text);
-
-        when(notesManager.listCommentIds(REVIEW_ID)).thenReturn(CompletableFuture.completedFuture(List.of(id1, id2)));
-        when(notesManager.readCommentMetadata(eq(REVIEW_ID), anyString())).thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
-        when(notesManager.readCommentText(eq(REVIEW_ID), anyString())).thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
-        when(notesManager.readCommentStatus(eq(REVIEW_ID), anyString())).thenReturn(CompletableFuture.completedFuture(List.of()));
-
-        List<ReviewComment> result = commentManager.loadCommentsFromKnownRepository(REVIEW_ID, REPO_NAME)
-            .get(2, TimeUnit.SECONDS);
-
-        assertEquals(2, result.size());
-    }
-
-    @Test
-    void loadCommentsFromKnownRepository_commentMissingMetadata_skipsNullEntry() throws Exception {
-        String commentId = UUID.randomUUID().toString();
-        OrphanBranchReviewManager.CommentTextData text = new OrphanBranchReviewManager.CommentTextData("text", null, "comment");
-        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "dev", text);
-
-        when(notesManager.listCommentIds(REVIEW_ID)).thenReturn(CompletableFuture.completedFuture(List.of(commentId)));
-        when(notesManager.readCommentMetadata(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of()));
-        when(notesManager.readCommentText(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
-        when(notesManager.readCommentStatus(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of()));
-
-        List<ReviewComment> result = commentManager.loadCommentsFromKnownRepository(REVIEW_ID, REPO_NAME)
-            .get(2, TimeUnit.SECONDS);
-
-        assertTrue(result.isEmpty());
+        assertNotNull(result);
+        assertTrue(result.needsResolution());
+        assertFalse(result.isResolved());
     }
 
     @Test
@@ -214,66 +243,6 @@ class ReviewCommentManagerTests {
         commentManager.saveAllComments(REVIEW_ID, REPO_NAME, null).get(1, TimeUnit.SECONDS);
 
         verify(notesManager, never()).writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any());
-    }
-
-    @Test
-    void loadCommentsFromKnownRepository_withStatusEntryResolved_marksCommentResolved() throws Exception {
-        String commentId = UUID.randomUUID().toString();
-        OrphanBranchReviewManager.CommentMetadata meta = new OrphanBranchReviewManager.CommentMetadata("X.java", 1, 1, null);
-        OrphanBranchReviewManager.CommentTextData text = new OrphanBranchReviewManager.CommentTextData("text", null, "review");
-        OrphanBranchReviewManager.CommentStatusData status = new OrphanBranchReviewManager.CommentStatusData(true, true);
-
-        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry = new StreamEntry<>("m1", Instant.now(), "alice", meta);
-        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "alice", text);
-        StreamEntry<OrphanBranchReviewManager.CommentStatusData> statusEntry = new StreamEntry<>("s1", Instant.now(), "bob", status);
-
-        when(notesManager.listCommentIds(REVIEW_ID)).thenReturn(CompletableFuture.completedFuture(List.of(commentId)));
-        when(notesManager.readCommentMetadata(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
-        when(notesManager.readCommentText(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
-        when(notesManager.readCommentStatus(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(statusEntry)));
-
-        List<ReviewComment> result = commentManager.loadCommentsFromKnownRepository(REVIEW_ID, REPO_NAME)
-            .get(2, TimeUnit.SECONDS);
-
-        assertEquals(1, result.size());
-        assertTrue(result.getFirst().isResolved());
-        assertTrue(result.getFirst().needsResolution());
-    }
-
-    @Test
-    void loadCommentsFromKnownRepository_withStatusEntryUnresolved_marksCommentUnresolved() throws Exception {
-        String commentId = UUID.randomUUID().toString();
-        OrphanBranchReviewManager.CommentMetadata meta = new OrphanBranchReviewManager.CommentMetadata("X.java", 1, 1, null);
-        OrphanBranchReviewManager.CommentTextData text = new OrphanBranchReviewManager.CommentTextData("text", null, "review");
-        OrphanBranchReviewManager.CommentStatusData status = new OrphanBranchReviewManager.CommentStatusData(true, false);
-
-        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry = new StreamEntry<>("m1", Instant.now(), "alice", meta);
-        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry = new StreamEntry<>("t1", Instant.now(), "alice", text);
-        StreamEntry<OrphanBranchReviewManager.CommentStatusData> statusEntry = new StreamEntry<>("s1", Instant.now(), "bob", status);
-
-        when(notesManager.listCommentIds(REVIEW_ID)).thenReturn(CompletableFuture.completedFuture(List.of(commentId)));
-        when(notesManager.readCommentMetadata(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
-        when(notesManager.readCommentText(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
-        when(notesManager.readCommentStatus(REVIEW_ID, commentId)).thenReturn(CompletableFuture.completedFuture(List.of(statusEntry)));
-
-        List<ReviewComment> result = commentManager.loadCommentsFromKnownRepository(REVIEW_ID, REPO_NAME)
-            .get(2, TimeUnit.SECONDS);
-
-        assertEquals(1, result.size());
-        assertTrue(result.getFirst().needsResolution());
-        assertFalse(result.getFirst().isResolved());
-    }
-
-    @Test
-    void loadCommentsFromKnownRepository_listCommentIdsFails_returnsEmptyList() throws Exception {
-        when(notesManager.listCommentIds(REVIEW_ID))
-            .thenReturn(CompletableFuture.failedFuture(new RuntimeException("git notes error")));
-
-        List<ReviewComment> result = commentManager.loadCommentsFromKnownRepository(REVIEW_ID, REPO_NAME)
-            .get(2, TimeUnit.SECONDS);
-
-        assertNotNull(result);
-        assertTrue(result.isEmpty());
     }
 
     // ── S1: parallel writes ──────────────────────────────────────────────────
@@ -357,6 +326,155 @@ class ReviewCommentManagerTests {
         commentManager.resolveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
 
         verify(notesManager).writeCommentStatus(eq(REVIEW_ID), eq("c6"), eq("frank"), eq(true), eq(false));
+    }
+
+    // ── loadAllComments ──────────────────────────────────────────────────────
+
+    @Test
+    void loadAllComments_nullReviewId_returnsEmptyList() throws Exception {
+        List<ReviewComment> result = commentManager.loadAllComments(null).get(1, TimeUnit.SECONDS);
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void loadAllComments_emptyReviewId_returnsEmptyList() throws Exception {
+        List<ReviewComment> result = commentManager.loadAllComments("").get(1, TimeUnit.SECONDS);
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void loadAllComments_indexerReturnsEmptyRouting_returnsEmptyList() throws Exception {
+        when(indexerClient.getCommentRouting(REVIEW_ID)).thenReturn(List.of());
+
+        List<ReviewComment> result = commentManager.loadAllComments(REVIEW_ID).get(2, TimeUnit.SECONDS);
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void loadAllComments_routingEntryWithUnknownUrl_skipsAndReturnsEmpty() throws Exception {
+        when(indexerClient.getCommentRouting(REVIEW_ID))
+            .thenReturn(List.of(new CommentRoutingEntry("file:///unknown-repo", "c1", "2026-01-01")));
+
+        List<ReviewComment> result = commentManager.loadAllComments(REVIEW_ID).get(2, TimeUnit.SECONDS);
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void loadAllComments_routingEntryWithKnownUrl_loadsComment() throws Exception {
+        repositoryManager.setRepositoriesFromNotification(
+            List.of(new RepositoryDescriptor(REPO_NAME, REPO_URL)));
+
+        String commentId = "c-load-all";
+        when(indexerClient.getCommentRouting(REVIEW_ID))
+            .thenReturn(List.of(new CommentRoutingEntry(REPO_URL, commentId, "2026-01-01")));
+
+        OrphanBranchReviewManager.CommentMetadata meta =
+            new OrphanBranchReviewManager.CommentMetadata("A.java", 3, 3, null);
+        OrphanBranchReviewManager.CommentTextData text =
+            new OrphanBranchReviewManager.CommentTextData("hello", null, "comment");
+        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry =
+            new StreamEntry<>("m1", java.time.Instant.now(), "alice", meta);
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry =
+            new StreamEntry<>("t1", java.time.Instant.now(), "alice", text);
+
+        when(notesManager.readCommentMetadata(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
+        when(notesManager.readCommentText(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
+        when(notesManager.readCommentStatus(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of()));
+
+        List<ReviewComment> result = commentManager.loadAllComments(REVIEW_ID).get(2, TimeUnit.SECONDS);
+
+        assertEquals(1, result.size());
+        assertEquals(commentId, result.getFirst().getId());
+        assertEquals("A.java", result.getFirst().getFilePath());
+    }
+
+    @Test
+    void loadAllComments_twoEntriesSameRepo_loadsBoth() throws Exception {
+        repositoryManager.setRepositoriesFromNotification(
+            List.of(new RepositoryDescriptor(REPO_NAME, REPO_URL)));
+
+        when(indexerClient.getCommentRouting(REVIEW_ID))
+            .thenReturn(List.of(
+                new CommentRoutingEntry(REPO_URL, "c-one", "2026-01-01"),
+                new CommentRoutingEntry(REPO_URL, "c-two", "2026-01-02")));
+
+        OrphanBranchReviewManager.CommentMetadata meta =
+            new OrphanBranchReviewManager.CommentMetadata("B.java", 1, 1, null);
+        OrphanBranchReviewManager.CommentTextData text =
+            new OrphanBranchReviewManager.CommentTextData("ok", null, "comment");
+        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry =
+            new StreamEntry<>("m1", java.time.Instant.now(), "dev", meta);
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry =
+            new StreamEntry<>("t1", java.time.Instant.now(), "dev", text);
+
+        when(notesManager.readCommentMetadata(eq(REVIEW_ID), anyString()))
+            .thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
+        when(notesManager.readCommentText(eq(REVIEW_ID), anyString()))
+            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
+        when(notesManager.readCommentStatus(eq(REVIEW_ID), anyString()))
+            .thenReturn(CompletableFuture.completedFuture(List.of()));
+
+        List<ReviewComment> result = commentManager.loadAllComments(REVIEW_ID).get(2, TimeUnit.SECONDS);
+
+        assertEquals(2, result.size());
+    }
+
+    // ── reloadComment ────────────────────────────────────────────────────────
+
+    @Test
+    void reloadComment_nullReviewId_returnsNull() throws Exception {
+        ReviewComment result = commentManager.reloadComment(null, REPO_URL, "c1").get(1, TimeUnit.SECONDS);
+
+        assertNull(result);
+    }
+
+    @Test
+    void reloadComment_unknownRepositoryUrl_returnsNull() throws Exception {
+        ReviewComment result = commentManager.reloadComment(REVIEW_ID, "file:///no-such-repo", "c1")
+            .get(1, TimeUnit.SECONDS);
+
+        assertNull(result);
+    }
+
+    @Test
+    void reloadComment_knownUrl_loadsComment() throws Exception {
+        repositoryManager.setRepositoriesFromNotification(
+            List.of(new RepositoryDescriptor(REPO_NAME, REPO_URL)));
+
+        String commentId = "c-reload";
+        OrphanBranchReviewManager.CommentMetadata meta =
+            new OrphanBranchReviewManager.CommentMetadata("C.java", 5, 5, null);
+        OrphanBranchReviewManager.CommentTextData text =
+            new OrphanBranchReviewManager.CommentTextData("reloaded", null, "comment");
+        StreamEntry<OrphanBranchReviewManager.CommentMetadata> metaEntry =
+            new StreamEntry<>("m1", java.time.Instant.now(), "bob", meta);
+        StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry =
+            new StreamEntry<>("t1", java.time.Instant.now(), "bob", text);
+
+        when(notesManager.readCommentMetadata(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
+        when(notesManager.readCommentText(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
+        when(notesManager.readCommentStatus(REVIEW_ID, commentId))
+            .thenReturn(CompletableFuture.completedFuture(List.of()));
+
+        ReviewComment result = commentManager.reloadComment(REVIEW_ID, REPO_URL, commentId)
+            .get(2, TimeUnit.SECONDS);
+
+        assertNotNull(result);
+        assertEquals(commentId, result.getId());
+        assertEquals("C.java", result.getFilePath());
     }
 }
 

@@ -29,6 +29,7 @@ import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.ViewportRestore
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.ReviewPanelModel;
 import com.kalynx.serverlessreviewtool.ui.models.reviewpanel.reviewformdialog.ReviewFormModels;
 import com.kalynx.serverlessreviewtool.ui.review.EditReviewDialog;
+import com.kalynx.serverlessreviewtool.ui.review.InlineCommentDialog;
 import net.miginfocom.swing.MigLayout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -207,7 +208,8 @@ public class ReviewPanel extends ThemedPanel {
     private CompletableFuture<Void> reloadForAutoRefresh(ReviewItem reviewItem,
                                                          ViewportRestoreState restoreState) {
         return loadController.load(reviewItem, restoreState, true, false,
-            "Review updated with new changes", ctx -> currentReviewContext = ctx, toastWindow::show);
+            "Review updated with new changes", ctx -> currentReviewContext = ctx, toastWindow::show)
+            .thenRun(InlineCommentDialog::notifyAllCommentChanged);
     }
 
     private void handleEditReview() {

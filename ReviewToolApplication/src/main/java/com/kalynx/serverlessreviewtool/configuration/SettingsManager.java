@@ -116,6 +116,15 @@ public class SettingsManager {
         listener.accept(getIndexerUrl());
     }
 
+    public String getIndexerBearerToken() {
+        return currentSettings.getIndexerBearerToken();
+    }
+
+    public void updateIndexerBearerToken(String token) {
+        currentSettings.setIndexerBearerToken(token != null ? token : "");
+        saveSettings();
+    }
+
     public void updateWindowDefaults(int width, int height) {
         currentSettings.getWindow().setDefaultWidth(width);
         currentSettings.getWindow().setDefaultHeight(height);

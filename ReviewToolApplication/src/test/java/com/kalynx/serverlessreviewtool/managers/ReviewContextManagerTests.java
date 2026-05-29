@@ -5,6 +5,9 @@ import com.kalynx.serverlessreviewtool.git.GitImpl;
 import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
 import com.kalynx.serverlessreviewtool.git.OrphanBranchStore;
 import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
+import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
+import com.kalynx.serverlessreviewtool.indexer.CommentIndexerClient;
+import static org.mockito.Mockito.mock;
 import com.kalynx.serverlessreviewtool.mockdata.GitRepositoryInitializer;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.Repository;
@@ -68,8 +71,8 @@ class ReviewContextManagerTests {
 
         RepositoryManager repositoryManager = new RepositoryManager();
         reviewContextManager = new ReviewContextManager(repositoryManager,
-            new ReviewCommentManager(factory),
-            new ReviewChangeSetManager(git, factory),
+            new ReviewCommentManager(factory, mock(CommentIndexerClient.class), repositoryManager),
+            new ReviewChangeSetManager(mock(ReviewCloneManager.class), factory),
             factory);
 
         git.cloneRepository(primaryUrl).get(30, TimeUnit.SECONDS);

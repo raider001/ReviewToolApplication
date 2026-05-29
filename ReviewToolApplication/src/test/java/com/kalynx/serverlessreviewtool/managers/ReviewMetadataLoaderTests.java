@@ -45,7 +45,7 @@ class ReviewMetadataLoaderTests {
         ReviewBranchManagerFactory factory = _ -> notesManager;
         loader = new ReviewMetadataLoader(factory, repositoryManager, commentManager, () -> null);
 
-        when(commentManager.loadCommentsFromKnownRepository(anyString(), anyString()))
+        when(commentManager.loadAllComments(anyString()))
             .thenReturn(CompletableFuture.completedFuture(List.of()));
     }
 

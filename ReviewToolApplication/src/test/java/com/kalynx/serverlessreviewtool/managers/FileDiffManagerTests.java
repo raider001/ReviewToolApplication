@@ -1,6 +1,6 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.git.Git;
+import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
 import com.kalynx.serverlessreviewtool.models.Commit;
 import com.kalynx.serverlessreviewtool.models.FileChangeType;
 import com.kalynx.serverlessreviewtool.models.ReviewFile;
@@ -13,41 +13,38 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/**
- * Unit tests for FileDiffManager covering commit loading, snapshot loading, and diff display.
- */
 class FileDiffManagerTests {
 
     private static final String REPO = "my-repo";
-    private static final String REMOTE_URL = "https://example.com/my-repo.git";
 
-    private Git git;
+    private ReviewCloneManager cloneManager;
     private CodeViewerModel model;
     private FileDiffManager diffManager;
 
     @BeforeEach
     void setUp() {
-        git = mock(Git.class);
+        cloneManager = mock(ReviewCloneManager.class);
         model = new CodeViewerModel();
-        diffManager = new FileDiffManager(git, model);
+        diffManager = new FileDiffManager(cloneManager, model);
     }
 
     @Test
     void loadCommitsForReview_gitReturnsEmptyList_setsEmptyAvailableCommits() throws Exception {
-        when(git.listCommitsRemote(eq(REMOTE_URL), anyString(), anyInt()))
+        when(cloneManager.listCommits(eq(REPO), anyString(), anyInt()))
             .thenReturn(CompletableFuture.completedFuture(List.of()));
 
-        diffManager.loadCommitsForReview(REPO, REMOTE_URL, "main", 50).get(2, TimeUnit.SECONDS);
+        diffManager.loadCommitsForReview(REPO, "main", 50).get(2, TimeUnit.SECONDS);
 
         assertTrue(model.availableCommits.getValue().isEmpty());
     }
@@ -56,20 +53,20 @@ class FileDiffManagerTests {
     void loadCommitsForReview_withCommits_setsAvailableCommits() throws Exception {
         String commitFormat = "abc1234|Author One|2024-01-01|Fix thing";
 
-        when(git.listCommitsRemote(eq(REMOTE_URL), anyString(), anyInt()))
+        when(cloneManager.listCommits(eq(REPO), anyString(), anyInt()))
             .thenReturn(CompletableFuture.completedFuture(List.of(commitFormat)));
 
-        diffManager.loadCommitsForReview(REPO, REMOTE_URL, "main", 50).get(2, TimeUnit.SECONDS);
+        diffManager.loadCommitsForReview(REPO, "main", 50).get(2, TimeUnit.SECONDS);
 
         assertFalse(model.availableCommits.getValue().isEmpty());
     }
 
     @Test
     void loadCommitsForReview_malformedCommitLine_skipped() throws Exception {
-        when(git.listCommitsRemote(eq(REMOTE_URL), anyString(), anyInt()))
+        when(cloneManager.listCommits(eq(REPO), anyString(), anyInt()))
             .thenReturn(CompletableFuture.completedFuture(List.of("malformed-no-pipes")));
 
-        diffManager.loadCommitsForReview(REPO, REMOTE_URL, "main", 50).get(2, TimeUnit.SECONDS);
+        diffManager.loadCommitsForReview(REPO, "main", 50).get(2, TimeUnit.SECONDS);
 
         assertTrue(model.availableCommits.getValue().isEmpty());
     }
@@ -79,11 +76,10 @@ class FileDiffManagerTests {
         String commitLine = "abc1234|Dev|2024-01-01|Message";
         String parentLine = "parent567|Dev|2024-01-01|Parent commit";
 
-        // maxCommits=1 → requests 2; second entry is baseline
-        when(git.listCommitsRemote(eq(REMOTE_URL), anyString(), anyInt()))
+        when(cloneManager.listCommits(eq(REPO), anyString(), anyInt()))
             .thenReturn(CompletableFuture.completedFuture(List.of(commitLine, parentLine)));
 
-        diffManager.loadCommitsForReview(REPO, REMOTE_URL, "main", 1).get(2, TimeUnit.SECONDS);
+        diffManager.loadCommitsForReview(REPO, "main", 1).get(2, TimeUnit.SECONDS);
 
         List<Commit> commits = model.availableCommits.getValue();
         assertTrue(commits.stream().anyMatch(c -> c.getHash().startsWith("abc1234")));
@@ -92,10 +88,10 @@ class FileDiffManagerTests {
 
     @Test
     void loadCommitsForReview_gitFails_setsEmptyAvailableCommits() throws Exception {
-        when(git.listCommitsRemote(eq(REMOTE_URL), anyString(), anyInt()))
+        when(cloneManager.listCommits(eq(REPO), anyString(), anyInt()))
             .thenReturn(CompletableFuture.failedFuture(new RuntimeException("git error")));
 
-        diffManager.loadCommitsForReview(REPO, REMOTE_URL, "main", 50).get(2, TimeUnit.SECONDS);
+        diffManager.loadCommitsForReview(REPO, "main", 50).get(2, TimeUnit.SECONDS);
 
         assertNotNull(model.availableCommits.getValue());
         assertTrue(model.availableCommits.getValue().isEmpty());
@@ -120,10 +116,10 @@ class FileDiffManagerTests {
         String hash = "abc1234567";
         String commitLine = hash + "|Dev|2024-01-01|Snapshot commit";
 
-        when(git.executeAsync(eq(REPO), eq("show"), eq("-s"),
+        when(cloneManager.execute(eq(REPO), eq("show"), eq("-s"),
                 eq("--format=%H|%an|%ad|%s"), eq("--date=short"), eq(hash)))
             .thenReturn(CompletableFuture.completedFuture(commitLine));
-        when(git.executeAsync(eq(REPO), eq("rev-parse"), anyString()))
+        when(cloneManager.execute(eq(REPO), eq("rev-parse"), anyString()))
             .thenReturn(CompletableFuture.failedFuture(new RuntimeException("no parent")));
 
         diffManager.loadCommitsForSnapshot(REPO, List.of(hash)).get(2, TimeUnit.SECONDS);
@@ -133,7 +129,7 @@ class FileDiffManagerTests {
 
     @Test
     void loadCommitsForSnapshot_commitLoadFails_skipsNullCommit() throws Exception {
-        when(git.executeAsync(eq(REPO), eq("show"), eq("-s"),
+        when(cloneManager.execute(eq(REPO), eq("show"), eq("-s"),
                 eq("--format=%H|%an|%ad|%s"), eq("--date=short"), anyString()))
             .thenReturn(CompletableFuture.failedFuture(new RuntimeException("not found")));
 
@@ -149,7 +145,7 @@ class FileDiffManagerTests {
 
         diffManager.loadDiffForFile(REPO, null, start, end).get(1, TimeUnit.SECONDS);
 
-        verify(git, never()).executeAsync(anyString(), anyString(), anyString());
+        verifyNoInteractions(cloneManager);
     }
 
     @Test
@@ -158,7 +154,7 @@ class FileDiffManagerTests {
 
         diffManager.loadDiffForFile(REPO, file, null, new Commit("bbb", "msg", "a", "d")).get(1, TimeUnit.SECONDS);
 
-        verify(git, never()).executeAsync(anyString(), anyString(), anyString());
+        verifyNoInteractions(cloneManager);
     }
 
     @Test
@@ -167,7 +163,7 @@ class FileDiffManagerTests {
 
         diffManager.loadDiffForFile(REPO, file, new Commit("aaa", "msg", "a", "d"), null).get(1, TimeUnit.SECONDS);
 
-        verify(git, never()).executeAsync(anyString(), anyString(), anyString());
+        verifyNoInteractions(cloneManager);
     }
 
     @Test
@@ -176,11 +172,11 @@ class FileDiffManagerTests {
         Commit start = new Commit("aaa1111", "msg", "author", "2024-01-01");
         Commit end = new Commit("bbb2222", "msg", "author", "2024-01-02");
 
-        when(git.executeAsync(eq(REPO), eq("show"), eq("aaa1111:src/Main.java")))
+        when(cloneManager.execute(eq(REPO), eq("show"), eq("aaa1111:src/Main.java")))
             .thenReturn(CompletableFuture.completedFuture("int x = 1;"));
-        when(git.executeAsync(eq(REPO), eq("show"), eq("bbb2222:src/Main.java")))
+        when(cloneManager.execute(eq(REPO), eq("show"), eq("bbb2222:src/Main.java")))
             .thenReturn(CompletableFuture.completedFuture("int x = 2;"));
-        when(git.executeAsync(eq(REPO), eq("diff"), eq("aaa1111"), eq("bbb2222"), eq("--"), eq("src/Main.java")))
+        when(cloneManager.execute(eq(REPO), eq("diff"), eq("aaa1111"), eq("bbb2222"), eq("--"), eq("src/Main.java")))
             .thenReturn(CompletableFuture.completedFuture("@@ -1 +1 @@\n-int x = 1;\n+int x = 2;"));
 
         diffManager.loadDiffForFile(REPO, file, start, end).get(2, TimeUnit.SECONDS);
@@ -195,11 +191,11 @@ class FileDiffManagerTests {
         Commit start = new Commit("aaa1111", "msg", "author", "2024-01-01");
         Commit end = new Commit("bbb2222", "msg", "author", "2024-01-02");
 
-        when(git.executeAsync(eq(REPO), eq("show"), eq("aaa1111:src/NewFile.java")))
+        when(cloneManager.execute(eq(REPO), eq("show"), eq("aaa1111:src/NewFile.java")))
             .thenReturn(CompletableFuture.failedFuture(new RuntimeException("path not in commit")));
-        when(git.executeAsync(eq(REPO), eq("show"), eq("bbb2222:src/NewFile.java")))
+        when(cloneManager.execute(eq(REPO), eq("show"), eq("bbb2222:src/NewFile.java")))
             .thenReturn(CompletableFuture.completedFuture("class NewFile {}"));
-        when(git.executeAsync(eq(REPO), eq("diff"), anyString(), anyString(), eq("--"), anyString()))
+        when(cloneManager.execute(eq(REPO), eq("diff"), anyString(), anyString(), eq("--"), anyString()))
             .thenReturn(CompletableFuture.completedFuture(""));
 
         diffManager.loadDiffForFile(REPO, file, start, end).get(2, TimeUnit.SECONDS);
@@ -207,9 +203,4 @@ class FileDiffManagerTests {
         assertTrue(model.leftContent.getValue().contains("does not exist"));
         assertEquals("class NewFile {}", model.rightContent.getValue());
     }
-
-    private static void assertFalse(boolean value) {
-        org.junit.jupiter.api.Assertions.assertFalse(value);
-    }
 }
-

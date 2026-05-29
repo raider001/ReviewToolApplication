@@ -412,11 +412,9 @@ public class InlineCommentDialog extends JDialog {
         loadExistingComments();
         notifyCommentChanged();
 
-        reviewContextManager.saveAllComments(reviewContext.reviewId, lineComments)
+        reviewContextManager.resolveAllComments(reviewContext.reviewId, lineComments)
             .exceptionally(error -> {
                 SwingUtilities.invokeLater(() -> {
-                    loadExistingComments();
-                    notifyCommentChanged();
                     ThemedConfirmDialog.showMessage(this, "Save Error",
                         "Failed to save resolution status: " + error.getMessage());
                 });
@@ -447,8 +445,7 @@ public class InlineCommentDialog extends JDialog {
 
         reviewContext.addComment(newComment);
         newCommentEditor.setHtml("");
-        loadExistingComments();
-        notifyCommentChanged();
+
         SwingUtilities.invokeLater(() -> {
             JScrollBar vertical = ((JScrollPane) commentsContainer.getParent().getParent()).getVerticalScrollBar();
             vertical.setValue(vertical.getMaximum());
@@ -457,10 +454,12 @@ public class InlineCommentDialog extends JDialog {
         reviewContextManager.saveComment(reviewContext.reviewId, newComment)
             .exceptionally(error -> {
                 SwingUtilities.invokeLater(() -> {
+                    newCommentEditor.setEnabled(true);
+                    addButton.setEnabled(true);
+                    addButton.setText("Add Comment");
                     ThemedConfirmDialog.showMessage(this, "Save Error",
                         "Failed to save comment: " + error.getMessage());
-                    reviewContext.getComments().remove(newComment);
-                    notifyCommentChanged();
+                    reviewContext.comments.remove(newComment);
                 });
                 return null;
             });
@@ -468,6 +467,22 @@ public class InlineCommentDialog extends JDialog {
 
     private void notifyCommentChanged() {
         if (onCommentChanged != null) onCommentChanged.run();
+        globalCommentChangedListeners.forEach(Runnable::run);
+    }
+
+    public static void notifyAllCommentChanged() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(InlineCommentDialog::notifyAllCommentChanged);
+            return;
+        }
+        if (instance != null && instance.isVisible()) {
+            ReviewContext fresh = instance.reviewContextManager.getReviewContext();
+            if (fresh != null) instance.reviewContext = fresh;
+            instance.loadExistingComments();
+            instance.newCommentEditor.setEnabled(true);
+            instance.addButton.setEnabled(true);
+            instance.addButton.setText("Add Comment");
+        }
         globalCommentChangedListeners.forEach(Runnable::run);
     }
 
