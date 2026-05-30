@@ -277,6 +277,13 @@ public class InlineCommentDialog extends JDialog {
     }
 
     private void loadExistingComments() {
+        JScrollBar vertical = null;
+        boolean wasAtBottom = false;
+        if (commentsContainer.getParent() != null && commentsContainer.getParent().getParent() instanceof JScrollPane sp) {
+            vertical = sp.getVerticalScrollBar();
+            wasAtBottom = vertical.getValue() + vertical.getVisibleAmount() >= vertical.getMaximum();
+        }
+
         commentsContainer.removeAll();
 
         List<ReviewComment> allComments = reviewContext.getCommentsForFile(filePath);
@@ -310,6 +317,11 @@ public class InlineCommentDialog extends JDialog {
         commentsContainer.add(Box.createVerticalGlue());
         commentsContainer.revalidate();
         commentsContainer.repaint();
+
+        if (wasAtBottom && vertical != null) {
+            final JScrollBar sb = vertical;
+            SwingUtilities.invokeLater(() -> sb.setValue(sb.getMaximum()));
+        }
     }
 
     private void updateResolutionUI() {
