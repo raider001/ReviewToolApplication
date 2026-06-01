@@ -5,8 +5,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
-import com.kalynx.serverlessreviewtool.plugin.ReviewListUpdate;
-import com.kalynx.serverlessreviewtool.plugin.ReviewUpdateType;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewListUpdate;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewUpdateType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,9 +33,7 @@ import java.util.stream.Stream;
  *   <li>Opens a persistent SSE connection to {@code GET /events/stream} for incremental updates.</li>
  * </ol>
  *
- * <p>The SSE connection reconnects automatically after network interruptions. When the configured
- * indexer URL changes via {@link SettingsManager#updateIndexerUrl}, the connection restarts with
- * the new URL and re-fires the initial review snapshot.
+ * <p>The SSE connection reconnects automatically after network interruptions.
  */
 public class IndexerEventSource {
 
@@ -69,7 +67,7 @@ public class IndexerEventSource {
      * @param listener consumer that receives batched {@link ReviewListUpdate} arrays
      */
     public void start(Consumer<ReviewListUpdate[]> listener) {
-        settingsManager.addIndexerUrlListener(url -> handleUrlChange(url, listener));
+        handleUrlChange(settingsManager.getIndexerUrl(), listener);
     }
 
     /**

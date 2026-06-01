@@ -65,7 +65,7 @@ public class UserSettingsPanel extends ThemedPanel {
     }
 
     private void updateFieldStates() {
-        switchUserButton.setEnabled(pluginManager.hasUserPlugins() && settingsManager.isLoggedIn());
+        switchUserButton.setEnabled(pluginManager.getUserPlugin().isPresent() && settingsManager.isLoggedIn());
     }
 
     private void updateIdentityDisplay() {
@@ -76,7 +76,7 @@ public class UserSettingsPanel extends ThemedPanel {
         if (settingsManager.isLoggedIn()) {
             loginStatusLabel.setIcon(new CheckIcon(16, new Color(66, 184, 131)));
             loginStatusLabel.setText("Logged in as " + settingsManager.getLoggedInUserName());
-        } else if (pluginManager.hasUserPlugins()) {
+        } else if (pluginManager.getUserPlugin().isPresent()) {
             loginStatusLabel.setIcon(new AlertIcon(16, new Color(220, 180, 80)));
             loginStatusLabel.setText("Not logged in. Current author: " + settingsManager.getCurrentUserName());
         } else {

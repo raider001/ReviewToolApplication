@@ -11,7 +11,6 @@ import java.util.UUID;
 public class AppSettings {
 
     private final WindowSettings window;
-    private String notificationServiceUrl;
     private String indexerUrl;
     private String indexerBearerToken;
     private List<RepositoryConfig> repositories;
@@ -22,7 +21,6 @@ public class AppSettings {
 
     public AppSettings() {
         this.window = new WindowSettings();
-        this.notificationServiceUrl = "";
         this.indexerUrl = "";
         this.indexerBearerToken = "";
         this.repositories = new ArrayList<>();
@@ -48,9 +46,6 @@ public class AppSettings {
     }
 
     public WindowSettings getWindow() { return window; }
-
-    public String getNotificationServiceUrl() { return notificationServiceUrl; }
-    public void setNotificationServiceUrl(String url) { this.notificationServiceUrl = url; }
 
     public String getIndexerUrl() { return indexerUrl != null ? indexerUrl : ""; }
     public void setIndexerUrl(String url) { this.indexerUrl = url; }

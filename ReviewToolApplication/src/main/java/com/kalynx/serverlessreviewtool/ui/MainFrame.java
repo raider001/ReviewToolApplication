@@ -136,7 +136,7 @@ public class MainFrame extends ThemedFrame {
     }
 
     private boolean needsLogin() {
-        return pluginManager.hasUserPlugins() && !settingsManager.isLoggedIn();
+        return pluginManager.getUserPlugin().isPresent() && !settingsManager.isLoggedIn();
     }
 
     private void showLoginPanel() {

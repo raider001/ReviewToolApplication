@@ -4,8 +4,8 @@ import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
-import com.kalynx.serverlessreviewtool.plugin.ReviewListUpdate;
-import com.kalynx.serverlessreviewtool.plugin.ReviewUpdateType;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewListUpdate;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewUpdateType;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.ReviewPanelModel;
 
 import javax.swing.SwingUtilities;

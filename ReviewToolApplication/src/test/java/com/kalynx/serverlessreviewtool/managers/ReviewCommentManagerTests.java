@@ -4,23 +4,26 @@ import com.kalynx.serverlessreviewtool.git.OrphanBranchReviewManager;
 import com.kalynx.serverlessreviewtool.git.ReviewBranchManagerFactory;
 import com.kalynx.serverlessreviewtool.indexer.CommentIndexerClient;
 import com.kalynx.serverlessreviewtool.indexer.CommentRoutingEntry;
-import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewComment;
-import com.kalynx.serverlessreviewtool.plugin.RepositoryDescriptor;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.RepositoryDescriptor;
 import com.kalynx.serverlessreviewtool.models.review.StreamEntry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.notNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -49,9 +52,7 @@ class ReviewCommentManagerTests {
         ReviewBranchManagerFactory factory = _ -> notesManager;
         commentManager = new ReviewCommentManager(factory, indexerClient, repositoryManager);
 
-        when(notesManager.writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any()))
-            .thenReturn(CompletableFuture.completedFuture(null));
-        when(notesManager.writeCommentText(anyString(), anyString(), anyString(), anyString(), any(), anyString()))
+        when(notesManager.writeComment(anyString(), anyString(), anyString(), any(), any(), any()))
             .thenReturn(CompletableFuture.completedFuture(null));
         when(notesManager.writeCommentStatus(anyString(), anyString(), anyString(), any(), any()))
             .thenReturn(CompletableFuture.completedFuture(null));
@@ -64,7 +65,7 @@ class ReviewCommentManagerTests {
         CompletableFuture<Void> result = commentManager.saveComment(null, REPO_NAME, comment);
 
         result.get(1, TimeUnit.SECONDS);
-        verify(notesManager, never()).writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any());
+        verify(notesManager, never()).writeComment(anyString(), anyString(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -74,7 +75,7 @@ class ReviewCommentManagerTests {
         CompletableFuture<Void> result = commentManager.saveComment("", REPO_NAME, comment);
 
         result.get(1, TimeUnit.SECONDS);
-        verify(notesManager, never()).writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any());
+        verify(notesManager, never()).writeComment(anyString(), anyString(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -82,7 +83,7 @@ class ReviewCommentManagerTests {
         CompletableFuture<Void> result = commentManager.saveComment(REVIEW_ID, REPO_NAME, null);
 
         result.get(1, TimeUnit.SECONDS);
-        verify(notesManager, never()).writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any());
+        verify(notesManager, never()).writeComment(anyString(), anyString(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -91,9 +92,7 @@ class ReviewCommentManagerTests {
 
         commentManager.saveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
 
-        verify(notesManager).writeCommentMetadata(eq(REVIEW_ID), eq("c1"), eq("alice"), eq("File.java"), eq(10), eq(10), any());
-        verify(notesManager).writeCommentText(eq(REVIEW_ID), eq("c1"), eq("alice"), eq("looks good"), any(), eq("comment"));
-        verify(notesManager, never()).writeCommentStatus(anyString(), anyString(), anyString(), any(), any());
+        verify(notesManager).writeComment(eq(REVIEW_ID), eq("c1"), eq("alice"), any(), any(), isNull());
     }
 
     @Test
@@ -102,9 +101,7 @@ class ReviewCommentManagerTests {
 
         commentManager.saveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
 
-        verify(notesManager).writeCommentMetadata(eq(REVIEW_ID), eq("c2"), eq("bob"), eq("Main.java"), eq(5), eq(5), any());
-        verify(notesManager).writeCommentText(eq(REVIEW_ID), eq("c2"), eq("bob"), eq("fix this"), any(), eq("review"));
-        verify(notesManager).writeCommentStatus(eq(REVIEW_ID), eq("c2"), eq("bob"), eq(true), any());
+        verify(notesManager).writeComment(eq(REVIEW_ID), eq("c2"), eq("bob"), any(), any(), notNull());
     }
 
     @Test
@@ -112,7 +109,7 @@ class ReviewCommentManagerTests {
         CompletableFuture<Void> result = commentManager.saveAllComments(REVIEW_ID, REPO_NAME, List.of());
 
         result.get(1, TimeUnit.SECONDS);
-        verify(notesManager, never()).writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any());
+        verify(notesManager, never()).writeComment(anyString(), anyString(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -122,8 +119,7 @@ class ReviewCommentManagerTests {
 
         commentManager.saveAllComments(REVIEW_ID, REPO_NAME, List.of(c1, c2)).get(1, TimeUnit.SECONDS);
 
-        verify(notesManager, times(2)).writeCommentMetadata(eq(REVIEW_ID), anyString(), anyString(), anyString(), any(int.class), any(int.class), any());
-        verify(notesManager, times(2)).writeCommentText(eq(REVIEW_ID), anyString(), anyString(), anyString(), any(), eq("comment"));
+        verify(notesManager, times(2)).writeComment(eq(REVIEW_ID), anyString(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -137,12 +133,10 @@ class ReviewCommentManagerTests {
         StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry =
             new StreamEntry<>("t1", Instant.now(), "dev", text);
 
-        when(notesManager.readCommentMetadata(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of()));
-        when(notesManager.readCommentText(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
-        when(notesManager.readCommentStatus(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of()));
+        Map<String, OrphanBranchReviewManager.AllCommentData> data = new LinkedHashMap<>();
+        data.put(commentId, new OrphanBranchReviewManager.AllCommentData(List.of(), List.of(textEntry), List.of()));
+        when(notesManager.readAllComments(eq(REVIEW_ID), anyList()))
+            .thenReturn(CompletableFuture.completedFuture(data));
 
         ReviewComment result = commentManager.reloadComment(REVIEW_ID, REPO_URL, commentId)
             .get(2, TimeUnit.SECONDS);
@@ -169,12 +163,11 @@ class ReviewCommentManagerTests {
         StreamEntry<OrphanBranchReviewManager.CommentStatusData> statusEntry =
             new StreamEntry<>("s1", Instant.now(), "bob", status);
 
-        when(notesManager.readCommentMetadata(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
-        when(notesManager.readCommentText(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
-        when(notesManager.readCommentStatus(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of(statusEntry)));
+        Map<String, OrphanBranchReviewManager.AllCommentData> data = new LinkedHashMap<>();
+        data.put(commentId, new OrphanBranchReviewManager.AllCommentData(
+            List.of(metaEntry), List.of(textEntry), List.of(statusEntry)));
+        when(notesManager.readAllComments(eq(REVIEW_ID), anyList()))
+            .thenReturn(CompletableFuture.completedFuture(data));
 
         ReviewComment result = commentManager.reloadComment(REVIEW_ID, REPO_URL, commentId)
             .get(2, TimeUnit.SECONDS);
@@ -203,12 +196,11 @@ class ReviewCommentManagerTests {
         StreamEntry<OrphanBranchReviewManager.CommentStatusData> statusEntry =
             new StreamEntry<>("s1", Instant.now(), "bob", status);
 
-        when(notesManager.readCommentMetadata(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
-        when(notesManager.readCommentText(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
-        when(notesManager.readCommentStatus(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of(statusEntry)));
+        Map<String, OrphanBranchReviewManager.AllCommentData> data = new LinkedHashMap<>();
+        data.put(commentId, new OrphanBranchReviewManager.AllCommentData(
+            List.of(metaEntry), List.of(textEntry), List.of(statusEntry)));
+        when(notesManager.readAllComments(eq(REVIEW_ID), anyList()))
+            .thenReturn(CompletableFuture.completedFuture(data));
 
         ReviewComment result = commentManager.reloadComment(REVIEW_ID, REPO_URL, commentId)
             .get(2, TimeUnit.SECONDS);
@@ -225,8 +217,7 @@ class ReviewCommentManagerTests {
 
         commentManager.saveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
 
-        verify(notesManager).writeCommentMetadata(eq(REVIEW_ID), eq("c3"), eq("charlie"), eq("Main.java"), eq(10), eq(10), any());
-        verify(notesManager).writeCommentStatus(eq(REVIEW_ID), eq("c3"), eq("charlie"), any(), any());
+        verify(notesManager).writeComment(eq(REVIEW_ID), eq("c3"), eq("charlie"), any(), any(), notNull());
     }
 
     @Test
@@ -235,14 +226,14 @@ class ReviewCommentManagerTests {
 
         commentManager.saveAllComments(null, REPO_NAME, List.of(comment)).get(1, TimeUnit.SECONDS);
 
-        verify(notesManager, never()).writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any());
+        verify(notesManager, never()).writeComment(anyString(), anyString(), anyString(), any(), any(), any());
     }
 
     @Test
     void saveAllComments_nullComments_returnsCompletedFutureWithoutWriting() throws Exception {
         commentManager.saveAllComments(REVIEW_ID, REPO_NAME, null).get(1, TimeUnit.SECONDS);
 
-        verify(notesManager, never()).writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any());
+        verify(notesManager, never()).writeComment(anyString(), anyString(), anyString(), any(), any(), any());
     }
 
     // ── S1: parallel writes ──────────────────────────────────────────────────
@@ -253,8 +244,7 @@ class ReviewCommentManagerTests {
 
         commentManager.saveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
 
-        verify(notesManager, times(1)).writeCommentMetadata(eq(REVIEW_ID), eq("c1"), eq("alice"), eq("File.java"), eq(10), eq(10), any());
-        verify(notesManager, times(1)).writeCommentText(eq(REVIEW_ID), eq("c1"), eq("alice"), eq("text"), any(), eq("comment"));
+        verify(notesManager, times(1)).writeComment(eq(REVIEW_ID), eq("c1"), eq("alice"), any(), any(), isNull());
     }
 
     @Test
@@ -263,9 +253,7 @@ class ReviewCommentManagerTests {
 
         commentManager.saveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
 
-        verify(notesManager, times(1)).writeCommentMetadata(any(), any(), any(), any(), any(int.class), any(int.class), any());
-        verify(notesManager, times(1)).writeCommentText(any(), any(), any(), any(), any(), any());
-        verify(notesManager, times(1)).writeCommentStatus(any(), any(), any(), any(), any());
+        verify(notesManager, times(1)).writeComment(any(), any(), any(), any(), any(), notNull());
     }
 
     @Test
@@ -275,9 +263,7 @@ class ReviewCommentManagerTests {
 
         commentManager.saveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
 
-        verify(notesManager, times(1)).writeCommentMetadata(any(), any(), any(), any(), any(int.class), any(int.class), any());
-        verify(notesManager, times(1)).writeCommentText(any(), any(), any(), any(), any(), any());
-        verify(notesManager, times(1)).writeCommentStatus(any(), any(), any(), any(), any());
+        verify(notesManager, times(1)).writeComment(any(), any(), any(), any(), any(), notNull());
     }
 
     @Test
@@ -286,7 +272,7 @@ class ReviewCommentManagerTests {
 
         commentManager.saveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
 
-        verify(notesManager, never()).writeCommentStatus(anyString(), anyString(), anyString(), any(), any());
+        verify(notesManager).writeComment(eq(REVIEW_ID), eq("c4"), eq("dave"), any(), any(), isNull());
     }
 
     // ── V1: resolve-only path ────────────────────────────────────────────────
@@ -299,8 +285,7 @@ class ReviewCommentManagerTests {
         commentManager.resolveComment(REVIEW_ID, REPO_NAME, comment).get(1, TimeUnit.SECONDS);
 
         verify(notesManager, times(1)).writeCommentStatus(eq(REVIEW_ID), eq("c5"), eq("eve"), any(), any());
-        verify(notesManager, never()).writeCommentMetadata(anyString(), anyString(), anyString(), anyString(), any(int.class), any(int.class), any());
-        verify(notesManager, never()).writeCommentText(anyString(), anyString(), anyString(), anyString(), any(), anyString());
+        verify(notesManager, never()).writeComment(anyString(), anyString(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -385,12 +370,11 @@ class ReviewCommentManagerTests {
         StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry =
             new StreamEntry<>("t1", java.time.Instant.now(), "alice", text);
 
-        when(notesManager.readCommentMetadata(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
-        when(notesManager.readCommentText(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
-        when(notesManager.readCommentStatus(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of()));
+        Map<String, OrphanBranchReviewManager.AllCommentData> data = new LinkedHashMap<>();
+        data.put(commentId, new OrphanBranchReviewManager.AllCommentData(
+            List.of(metaEntry), List.of(textEntry), List.of()));
+        when(notesManager.readAllComments(eq(REVIEW_ID), anyList()))
+            .thenReturn(CompletableFuture.completedFuture(data));
 
         List<ReviewComment> result = commentManager.loadAllComments(REVIEW_ID).get(2, TimeUnit.SECONDS);
 
@@ -418,12 +402,11 @@ class ReviewCommentManagerTests {
         StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry =
             new StreamEntry<>("t1", java.time.Instant.now(), "dev", text);
 
-        when(notesManager.readCommentMetadata(eq(REVIEW_ID), anyString()))
-            .thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
-        when(notesManager.readCommentText(eq(REVIEW_ID), anyString()))
-            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
-        when(notesManager.readCommentStatus(eq(REVIEW_ID), anyString()))
-            .thenReturn(CompletableFuture.completedFuture(List.of()));
+        Map<String, OrphanBranchReviewManager.AllCommentData> data = new LinkedHashMap<>();
+        data.put("c-one", new OrphanBranchReviewManager.AllCommentData(List.of(metaEntry), List.of(textEntry), List.of()));
+        data.put("c-two", new OrphanBranchReviewManager.AllCommentData(List.of(metaEntry), List.of(textEntry), List.of()));
+        when(notesManager.readAllComments(eq(REVIEW_ID), anyList()))
+            .thenReturn(CompletableFuture.completedFuture(data));
 
         List<ReviewComment> result = commentManager.loadAllComments(REVIEW_ID).get(2, TimeUnit.SECONDS);
 
@@ -462,12 +445,11 @@ class ReviewCommentManagerTests {
         StreamEntry<OrphanBranchReviewManager.CommentTextData> textEntry =
             new StreamEntry<>("t1", java.time.Instant.now(), "bob", text);
 
-        when(notesManager.readCommentMetadata(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of(metaEntry)));
-        when(notesManager.readCommentText(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of(textEntry)));
-        when(notesManager.readCommentStatus(REVIEW_ID, commentId))
-            .thenReturn(CompletableFuture.completedFuture(List.of()));
+        Map<String, OrphanBranchReviewManager.AllCommentData> data = new LinkedHashMap<>();
+        data.put(commentId, new OrphanBranchReviewManager.AllCommentData(
+            List.of(metaEntry), List.of(textEntry), List.of()));
+        when(notesManager.readAllComments(eq(REVIEW_ID), anyList()))
+            .thenReturn(CompletableFuture.completedFuture(data));
 
         ReviewComment result = commentManager.reloadComment(REVIEW_ID, REPO_URL, commentId)
             .get(2, TimeUnit.SECONDS);
@@ -477,4 +459,3 @@ class ReviewCommentManagerTests {
         assertEquals("C.java", result.getFilePath());
     }
 }
-

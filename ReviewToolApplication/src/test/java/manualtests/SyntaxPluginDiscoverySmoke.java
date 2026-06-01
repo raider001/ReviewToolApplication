@@ -22,7 +22,7 @@ public class SyntaxPluginDiscoverySmoke {
         configurePluginDirectory();
 
         PluginManager pluginManager = new PluginManager();
-        pluginManager.initialize();
+        pluginManager.start();
 
         List<String> extensions = List.of(
             "java", "py", "ts", "js", "html", "css", "tsx", "json", "yaml", "yml", "xml",

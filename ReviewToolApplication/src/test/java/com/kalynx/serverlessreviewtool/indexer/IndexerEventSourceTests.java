@@ -1,8 +1,8 @@
 package com.kalynx.serverlessreviewtool.indexer;
 
 import com.kalynx.serverlessreviewtool.configuration.SettingsManager;
-import com.kalynx.serverlessreviewtool.plugin.ReviewListUpdate;
-import com.kalynx.serverlessreviewtool.plugin.ReviewUpdateType;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewListUpdate;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewUpdateType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

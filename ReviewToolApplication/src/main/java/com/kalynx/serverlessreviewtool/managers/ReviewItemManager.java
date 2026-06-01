@@ -3,9 +3,9 @@ package com.kalynx.serverlessreviewtool.managers;
 import com.kalynx.serverlessreviewtool.git.Git;
 import com.kalynx.serverlessreviewtool.git.ReviewItemLoader;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
-import com.kalynx.serverlessreviewtool.plugin.RepositoryDescriptor;
-import com.kalynx.serverlessreviewtool.plugin.ReviewListUpdate;
-import com.kalynx.serverlessreviewtool.plugin.ReviewUpdateType;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.RepositoryDescriptor;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewListUpdate;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewUpdateType;
 import com.kalynx.swingtheme.theme.LoadingStateManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +20,13 @@ import java.util.stream.Collectors;
 
 /**
  * Maintains review item state and emits incremental updates to listeners.
+ *
+ * <p>Three listener types are supported:
+ * <ul>
+ *   <li>{@link #addListener} — full snapshot, fired after any bulk repository refresh</li>
+ *   <li>{@link #addUpsertListener} — single item, fired when a targeted update adds or updates one review</li>
+ *   <li>{@link #addRemoveListener} — review ID, fired when a targeted delete removes a review entirely</li>
+ * </ul>
  */
 public class ReviewItemManager {
 
@@ -31,28 +38,21 @@ public class ReviewItemManager {
     private final Map<String, ReviewItem> mergedReviewIndex = new HashMap<>();
 
     private final Set<Consumer<List<ReviewItem>>> listeners = new HashSet<>();
+    private final Set<Consumer<ReviewItem>> upsertListeners = new HashSet<>();
+    private final Set<Consumer<String>> removeListeners = new HashSet<>();
+
     private final Git git;
     private final ReviewItemLoader reviewItemLoader;
     private volatile List<RepositoryDescriptor> notificationPluginRepositories = List.of();
     private final Map<String, CompletableFuture<Void>> inFlightRepositoryRefreshes = new ConcurrentHashMap<>();
 
-    /**
-     * Creates a new review item manager.
-     *
-     * @param git git client
-     * @param reviewItemLoader review item loader
-     */
-    public ReviewItemManager(
-        Git git,
-        ReviewItemLoader reviewItemLoader) {
+    public ReviewItemManager(Git git, ReviewItemLoader reviewItemLoader) {
         this.git = git;
         this.reviewItemLoader = reviewItemLoader;
     }
 
     /**
      * Refreshes reviews for all configured repositories.
-     *
-     * @return completion future for the refresh operation
      */
     public CompletableFuture<Void> refresh() {
         LoadingStateManager.getInstance().startLoading("refresh-review-items");
@@ -71,8 +71,6 @@ public class ReviewItemManager {
 
     /**
      * Sets repositories discovered from notification plugins.
-     *
-     * @param repositories repository descriptors from notification plugins
      */
     public void setNotificationPluginRepositories(List<RepositoryDescriptor> repositories) {
         List<RepositoryDescriptor> normalized = repositories == null
@@ -104,20 +102,15 @@ public class ReviewItemManager {
 
     private List<String> resolveRepositoryNames() {
         LinkedHashSet<String> names = new LinkedHashSet<>();
-
         notificationPluginRepositories.stream()
             .map(RepositoryDescriptor::name)
             .filter(name -> name != null && !name.isBlank())
             .forEach(names::add);
-
         return new ArrayList<>(names);
     }
 
     /**
-     * Refreshes reviews for one repository and emits incremental updates as each item is loaded.
-     *
-     * @param repositoryName repository to refresh
-     * @return completion future for the repository refresh
+     * Refreshes reviews for one repository and emits a full snapshot when done.
      */
     public CompletableFuture<Void> refreshRepository(String repositoryName) {
         if (repositoryName == null || repositoryName.isBlank()) {
@@ -166,16 +159,11 @@ public class ReviewItemManager {
      * single-review fetch is performed via {@link ReviewItemLoader#loadSingleReviewItem} so only
      * the affected blob is retrieved from the orphan branch. When either field is absent the
      * affected repository is refreshed in full as a fallback.
-     *
-     * @param updates plugin review list updates
      */
     public void applyNotificationUpdates(ReviewListUpdate[] updates) {
-        if (updates == null) {
-            return;
-        }
+        if (updates == null) return;
 
-
-        Arrays.stream(updates).parallel().forEach( update -> {
+        Arrays.stream(updates).parallel().forEach(update -> {
             if (update == null) return;
             LOGGER.info("[ReviewItemManager] applyNotificationUpdates: type='{}' reviewId='{}' repo='{}' repoUrl='{}'",
                     update.updateType(), update.reviewId(), update.primaryRepository(), update.repositoryUrl());
@@ -210,13 +198,10 @@ public class ReviewItemManager {
         });
     }
 
-    /**
-     * Fetches or removes a single review in response to a targeted notification event.
-     */
     private CompletableFuture<Void> fetchSingleReview(String reviewId,
-                                                        String remoteUrl,
-                                                        String repositoryName,
-                                                        ReviewUpdateType type) {
+                                                       String remoteUrl,
+                                                       String repositoryName,
+                                                       ReviewUpdateType type) {
         if (type == ReviewUpdateType.DELETED) {
             removeSingleReviewFromSnapshot(repositoryName, reviewId);
             return CompletableFuture.completedFuture(null);
@@ -233,22 +218,31 @@ public class ReviewItemManager {
             });
     }
 
-    /** Inserts or replaces a single review item in the snapshot and notifies listeners. */
+    /**
+     * Inserts or replaces a single review item and notifies upsert listeners with the merged result.
+     */
     private void upsertReview(String repositoryName, ReviewItem item) {
-        List<ReviewItem> snapshot;
+        ReviewItem merged;
         synchronized (lock) {
             repositoryReviewIndex
                 .computeIfAbsent(repositoryName, k -> new HashMap<>())
                 .put(item.getReviewId(), item);
             recomputeMergedReview(item.getReviewId());
-            snapshot = rebuildSnapshot();
+            merged = mergedReviewIndex.get(item.getReviewId());
+            rebuildSnapshot();
         }
-        notifyListeners(snapshot);
+        if (merged != null) {
+            notifyUpsertListeners(merged);
+        }
     }
 
-    /** Removes a single review from one repository's snapshot and notifies listeners. */
+    /**
+     * Removes a single review from one repository's snapshot.
+     * If the review still exists via another repository, upsert listeners receive the re-merged item.
+     * If the review is gone entirely, remove listeners receive the review ID.
+     */
     private void removeSingleReviewFromSnapshot(String repositoryName, String reviewId) {
-        List<ReviewItem> snapshot;
+        ReviewItem stillMerged;
         synchronized (lock) {
             Map<String, ReviewItem> repoMap = repositoryReviewIndex.get(repositoryName);
             if (repoMap == null || !repoMap.containsKey(reviewId)) {
@@ -256,15 +250,18 @@ public class ReviewItemManager {
             }
             repoMap.remove(reviewId);
             recomputeMergedReview(reviewId);
-            snapshot = rebuildSnapshot();
+            stillMerged = mergedReviewIndex.get(reviewId);
+            rebuildSnapshot();
         }
-        notifyListeners(snapshot);
+        if (stillMerged != null) {
+            notifyUpsertListeners(stillMerged);
+        } else {
+            notifyRemoveListeners(reviewId);
+        }
     }
 
     /**
-     * Adds a review list listener.
-     *
-     * @param listener listener to add
+     * Adds a full-snapshot listener. Called immediately with the current snapshot on registration.
      */
     public void addListener(Consumer<List<ReviewItem>> listener) {
         List<ReviewItem> snapshot;
@@ -273,6 +270,25 @@ public class ReviewItemManager {
             snapshot = List.copyOf(reviewItems);
         }
         listener.accept(snapshot);
+    }
+
+    /**
+     * Adds a listener that receives a single {@link ReviewItem} whenever a targeted update
+     * adds or modifies one review without triggering a full repository refresh.
+     */
+    public void addUpsertListener(Consumer<ReviewItem> listener) {
+        synchronized (lock) {
+            upsertListeners.add(listener);
+        }
+    }
+
+    /**
+     * Adds a listener that receives a review ID whenever a targeted delete removes a review entirely.
+     */
+    public void addRemoveListener(Consumer<String> listener) {
+        synchronized (lock) {
+            removeListeners.add(listener);
+        }
     }
 
     private void replaceRepositorySnapshot(String repositoryName, Map<String, ReviewItem> refreshedSnapshot) {
@@ -347,12 +363,8 @@ public class ReviewItemManager {
         for (ReviewItem copy : copies) {
             repositories.addAll(copy.getRepositories());
             reviewers.addAll(copy.getReviewers());
-            if (branch == null && copy.getBranch() != null) {
-                branch = copy.getBranch();
-            }
-            if (baseBranch == null && copy.getBaseBranch() != null) {
-                baseBranch = copy.getBaseBranch();
-            }
+            if (branch == null && copy.getBranch() != null) branch = copy.getBranch();
+            if (baseBranch == null && copy.getBaseBranch() != null) baseBranch = copy.getBaseBranch();
         }
 
         return new ReviewItem(
@@ -430,8 +442,17 @@ public class ReviewItemManager {
     }
 
     private void notifyListeners(List<ReviewItem> snapshot) {
-        LOGGER.debug("Notifying listeners of review item list update: {} items", snapshot.size());
+        LOGGER.debug("Notifying listeners of full review list update: {} items", snapshot.size());
         listeners.forEach(listener -> listener.accept(snapshot));
     }
 
+    private void notifyUpsertListeners(ReviewItem item) {
+        LOGGER.debug("Notifying upsert listeners: reviewId={}", item.getReviewId());
+        upsertListeners.forEach(listener -> listener.accept(item));
+    }
+
+    private void notifyRemoveListeners(String reviewId) {
+        LOGGER.debug("Notifying remove listeners: reviewId={}", reviewId);
+        removeListeners.forEach(listener -> listener.accept(reviewId));
+    }
 }

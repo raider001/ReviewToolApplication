@@ -57,7 +57,7 @@ public class ReviewList extends ThemedList<ReviewItem> {
         private static final long serialVersionUID = 1L;
 
         public ReviewItemFilterableModel() {
-            super(ReviewItemFilterableModel::matchesFilters);
+            super(ReviewItem::getReviewId, ReviewItemFilterableModel::matchesFilters);
         }
 
         private static boolean matchesFilters(ReviewItem item, String titleFilter,

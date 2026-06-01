@@ -55,7 +55,7 @@ public class SyntaxHighlighterManualTestHarness {
 
     private void show() {
         configurePluginDirectory();
-        pluginManager.initialize();
+        pluginManager.start();
 
         JFrame frame = new JFrame("Manual Syntax Highlighter Harness");
         frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);

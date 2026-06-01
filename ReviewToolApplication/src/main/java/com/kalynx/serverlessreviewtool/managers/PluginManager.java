@@ -1,152 +1,102 @@
 package com.kalynx.serverlessreviewtool.managers;
 
-import com.kalynx.serverlessreviewtool.plugin.*;
+import com.kalynx.serverlessreviewtool.plugin.NotificationPlugin;
+import com.kalynx.serverlessreviewtool.plugin.Plugin;
+import com.kalynx.serverlessreviewtool.plugin.PluginPanel;
+import com.kalynx.serverlessreviewtool.plugin.PluginRegistry;
+import com.kalynx.serverlessreviewtool.plugin.SyntaxHighlighterPlugin;
+import com.kalynx.serverlessreviewtool.plugin.UserPlugin;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Consumer;
 
 /**
- * PluginManager - Application facade for plugin discovery and access.
- * Loads plugins at startup and provides typed access to registered plugins.
+ * Manages plugin lifecycle and provides typed access to registered plugin instances.
+ *
+ * <p>Only one {@link UserPlugin} and one {@link NotificationPlugin} may be active at a time;
+ * if more than one of either type is found, the first is used and a warning is logged.
+ * {@link SyntaxHighlighterPlugin} allows multiple registrations (one per file extension).
+ *
+ * <p>Startup sequence:
+ * <ol>
+ *   <li>Call {@link #load()} — discovers plugins and makes them accessible via the getters.</li>
+ *   <li>Attach listeners directly to the returned plugin instances.</li>
+ *   <li>Call {@link #start()} — initialises plugins so they fire initial events to
+ *       already-attached listeners.</li>
+ * </ol>
  */
 public class PluginManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(PluginManager.class);
 
     private final PluginRegistry pluginRegistry = new PluginRegistry();
-    private boolean initialized;
 
-    private final List<Runnable> pendingUserListeners = new ArrayList<>();
-    private final List<Runnable> pendingNotificationListeners = new ArrayList<>();
+    private Optional<UserPlugin> userPlugin = Optional.empty();
+    private Optional<NotificationPlugin> notificationPlugin = Optional.empty();
+
+    private boolean loaded;
+    private boolean started;
 
     /**
-     * Loads plugins from the configured plugins directory.
-     * Applies any pre-registered listeners before calling plugin initialize(),
-     * ensuring plugins fire initial events to already-attached listeners.
-     * Safe to call multiple times; only first call performs loading.
+     * Phase 1: discovers plugins and populates the typed plugin references.
+     * After this returns, plugins are accessible via the getters and listeners may be
+     * attached directly before {@link #start()} is called.
+     * Safe to call multiple times; only the first call performs loading.
      */
-    public synchronized void initialize() {
-        if (initialized) {
-            return;
-        }
+    public synchronized void load() {
+        if (loaded) return;
         pluginRegistry.load();
-        pendingUserListeners.forEach(Runnable::run);
-        pendingUserListeners.clear();
-        pendingNotificationListeners.forEach(Runnable::run);
-        pendingNotificationListeners.clear();
+
+        userPlugin = pickSingle(UserPlugin.class);
+        notificationPlugin = pickSingle(NotificationPlugin.class);
+
+        loaded = true;
+        LOGGER.info("PluginManager loaded — userPlugin={} notificationPlugin={} syntaxHighlighters={}",
+            userPlugin.map(p -> p.getClass().getSimpleName()).orElse("none"),
+            notificationPlugin.map(p -> p.getClass().getSimpleName()).orElse("none"),
+            pluginRegistry.getPlugins(SyntaxHighlighterPlugin.class).size());
+    }
+
+    /**
+     * Phase 2: calls {@code initialize()} on all registered plugins.
+     * Must be called after all listeners have been attached.
+     * Implicitly calls {@link #load()} if not already done.
+     * Safe to call multiple times; only the first call starts plugins.
+     */
+    public synchronized void start() {
+        if (started) return;
+        if (!loaded) load();
         pluginRegistry.initializePlugins();
-        initialized = true;
-        LOGGER.info("PluginManager initialized");
+        started = true;
+        LOGGER.info("PluginManager started");
     }
 
     /**
-     * Registers a listener for user plugin events.
-     * If called before {@link #initialize()}, the listener is queued and applied
-     * after plugins are discovered but before they are initialized.
+     * Returns the registered {@link UserPlugin}, if any.
      *
-     * @param type     the notification type to listen for
-     * @param listener the listener to register
+     * @return optional user plugin
      */
-    public void addListenerToUserPlugins(UserPlugin.NotificationType type, Consumer<String[]> listener) {
-        if (!initialized) {
-            pendingUserListeners.add(() ->
-                pluginRegistry.getPlugins(UserPlugin.class).forEach(plugin -> plugin.addListener(type, listener))
-            );
-        } else {
-            pluginRegistry.getPlugins(UserPlugin.class).forEach(plugin -> plugin.addListener(type, listener));
-        }
+    public Optional<UserPlugin> getUserPlugin() {
+        return userPlugin;
     }
 
     /**
-     * Registers a listener for notification plugin events.
-     * If called before {@link #initialize()}, the listener is queued and applied
-     * after plugins are discovered but before they are initialized.
+     * Returns the registered {@link NotificationPlugin}, if any.
      *
-     * @param type the notification event type to listen for
-     * @param listener the listener to register
+     * @return optional notification plugin
      */
-    public void addListenerToNotificationPlugins(
-        NotificationPlugin.NotificationType type,
-        Consumer<ReviewListUpdate[]> listener) {
-        if (!initialized) {
-            pendingNotificationListeners.add(() ->
-                pluginRegistry.getPlugins(NotificationPlugin.class)
-                    .forEach(plugin -> plugin.addListener(type, payloads -> {
-                        ReviewListUpdate[] updates = extractReviewUpdates(payloads);
-                        if (updates.length > 0) {
-                            listener.accept(updates);
-                        }
-                    }))
-            );
-        } else {
-            pluginRegistry.getPlugins(NotificationPlugin.class)
-                .forEach(plugin -> plugin.addListener(type, payloads -> {
-                    ReviewListUpdate[] updates = extractReviewUpdates(payloads);
-                    if (updates.length > 0) {
-                        listener.accept(updates);
-                    }
-                }));
-        }
+    public Optional<NotificationPlugin> getNotificationPlugin() {
+        return notificationPlugin;
     }
 
     /**
-     * Registers a listener for notification plugin repository list updates.
-     *
-     * @param listener repository update listener
-     */
-    public void addListenerToNotificationRepositoryUpdates(Consumer<RepositoryListUpdate[]> listener) {
-        if (!initialized) {
-            pendingNotificationListeners.add(() ->
-                pluginRegistry.getPlugins(NotificationPlugin.class)
-                    .forEach(plugin -> plugin.addListener(NotificationPlugin.NotificationType.REPOSITORIES_UPDATED, payloads -> {
-                        RepositoryListUpdate[] updates = extractRepositoryUpdates(payloads);
-                        if (updates.length > 0) {
-                            listener.accept(updates);
-                        }
-                    }))
-            );
-        } else {
-            pluginRegistry.getPlugins(NotificationPlugin.class)
-                .forEach(plugin -> plugin.addListener(NotificationPlugin.NotificationType.REPOSITORIES_UPDATED, payloads -> {
-                    RepositoryListUpdate[] updates = extractRepositoryUpdates(payloads);
-                    if (updates.length > 0) {
-                        listener.accept(updates);
-                    }
-                }));
-        }
-    }
-
-    /**
-     * Indicates whether any user plugins are currently registered.
-     *
-     * @return true when at least one user plugin is available
-     */
-    public boolean hasUserPlugins() {
-        return !pluginRegistry.getPlugins(UserPlugin.class).isEmpty();
-    }
-
-    /**
-     * Validates a user against the registered user plugins.
-     *
-     * @param user the user to validate
-     * @param validationString the validation value supplied by the user
-     * @return true when any registered user plugin accepts the identity
-     */
-    public boolean validateUser(String user, String validationString) {
-        return pluginRegistry.getPlugins(UserPlugin.class).stream()
-            .anyMatch(plugin -> plugin.validateUser(user, validationString));
-    }
-
-    /**
-     * Returns the registered syntax highlighter plugin for the given file extension, if any.
-     * Each plugin handles exactly one extension, so the match is precise.
+     * Returns the registered syntax highlighter for the given file extension, if any.
      *
      * @param fileExtension lower-case file extension without dot (e.g. {@code "java"})
-     * @return optional containing the plugin for this extension, or empty if none registered
+     * @return optional syntax highlighter plugin for this extension
      */
     public Optional<SyntaxHighlighterPlugin> getSyntaxHighlighterFor(String fileExtension) {
         return pluginRegistry.getPlugins(SyntaxHighlighterPlugin.class).stream()
@@ -156,8 +106,7 @@ public class PluginManager {
 
     /**
      * Returns all {@link PluginPanel} instances contributed by registered plugins.
-     * Plugins that return {@code null} from {@link com.kalynx.serverlessreviewtool.plugin.Plugin#getUI()}
-     * are silently skipped.
+     * Plugins that throw or return {@code null} from {@code getUI()} are silently skipped.
      *
      * @return list of plugin panels, may be empty
      */
@@ -167,11 +116,11 @@ public class PluginManager {
                 try {
                     return plugin.getUI();
                 } catch (Exception e) {
-                    LOGGER.warn("Plugin {} threw an exception from getUI()", plugin.getClass().getName(), e);
+                    LOGGER.warn("Plugin {} threw from getUI()", plugin.getClass().getName(), e);
                     return null;
                 }
             })
-            .filter(java.util.Objects::nonNull)
+            .filter(Objects::nonNull)
             .toList();
     }
 
@@ -179,28 +128,22 @@ public class PluginManager {
      * Releases plugin classloader resources.
      */
     public synchronized void shutdown() {
-        if (!initialized) {
-            return;
-        }
+        if (!loaded && !started) return;
         pluginRegistry.close();
-        initialized = false;
+        userPlugin = Optional.empty();
+        notificationPlugin = Optional.empty();
+        started = false;
+        loaded = false;
         LOGGER.info("PluginManager shut down");
     }
 
-    private ReviewListUpdate[] extractReviewUpdates(com.kalynx.serverlessreviewtool.plugin.NotificationPayload[] payloads) {
-        return java.util.Arrays.stream(payloads)
-            .filter(ReviewListUpdate.class::isInstance)
-            .map(ReviewListUpdate.class::cast)
-            .toArray(ReviewListUpdate[]::new);
-    }
-
-    private RepositoryListUpdate[] extractRepositoryUpdates(com.kalynx.serverlessreviewtool.plugin.NotificationPayload[] payloads) {
-        return java.util.Arrays.stream(payloads)
-            .filter(RepositoryListUpdate.class::isInstance)
-            .map(RepositoryListUpdate.class::cast)
-            .toArray(RepositoryListUpdate[]::new);
+    private <T extends Plugin> Optional<T> pickSingle(Class<T> type) {
+        List<T> found = pluginRegistry.getPlugins(type);
+        if (found.isEmpty()) return Optional.empty();
+        if (found.size() > 1) {
+            LOGGER.warn("Multiple {} plugins registered — only '{}' will be used",
+                type.getSimpleName(), found.getFirst().getClass().getSimpleName());
+        }
+        return Optional.of(found.getFirst());
     }
 }
-
-
-

@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
 import com.kalynx.serverlessreviewtool.models.Repository;
-import com.kalynx.serverlessreviewtool.plugin.RepositoryDescriptor;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.RepositoryDescriptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

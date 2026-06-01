@@ -83,13 +83,24 @@ public class OrphanBranchReviewManager {
     }
 
     public CompletableFuture<Void> writeReviewer(String reviewId, String editor, ReviewerData reviewerData) {
-        return writeField(reviewId, "reviewers", editor, reviewerData);
+        StreamEntry<ReviewerData> entry = StreamEntry.create(editor, reviewerData);
+        byte[] newLine = NdjsonWriter.toBytes(entry);
+        return store.readFile(reviewId, "reviewers")
+            .thenCompose(existing -> {
+                byte[] combined = appendNdjsonLine(existing.orElse(new byte[0]), newLine);
+                return store.writeFile(reviewId, "reviewers", combined);
+            });
     }
 
     public CompletableFuture<Void> writeRepositoryActive(String reviewId, String repositoryName,
                                                           String editor, boolean active) {
-        return writeField(reviewId, "metadata/repositoryActive", editor,
-                new RepositoryActiveData(repositoryName, active));
+        StreamEntry<RepositoryActiveData> entry = StreamEntry.create(editor, new RepositoryActiveData(repositoryName, active));
+        byte[] newLine = NdjsonWriter.toBytes(entry);
+        return store.readFile(reviewId, "metadata/repositoryActive")
+            .thenCompose(existing -> {
+                byte[] combined = appendNdjsonLine(existing.orElse(new byte[0]), newLine);
+                return store.writeFile(reviewId, "metadata/repositoryActive", combined);
+            });
     }
 
     public CompletableFuture<Void> writeCommentMetadata(String reviewId, String commentId, String editor,
@@ -411,10 +422,37 @@ public class OrphanBranchReviewManager {
         return NdjsonReader.fromBytes(raw.orElse(new byte[0]), dataType);
     }
 
-    /** Writes a single-value entry keyed by a logical "editor" (e.g. for reviewer maps). */
+    /**
+     * Appends a single-value entry keyed by a logical reviewer name into the shared NDJSON
+     * byte array stored in {@code files} for {@code streamPath}. Multiple calls for the same
+     * stream path accumulate lines so that all entries survive in a single file.
+     */
     private <T> void putMerged(Map<String, byte[]> files, String reviewId,
                                 String streamPath, String editor, String key, T data) {
-        put(files, reviewId, streamPath, key, data);
+        String mapKey = REVIEWS_PREFIX + reviewId + "/" + streamPath;
+        StreamEntry<T> entry = StreamEntry.create(key, data);
+        byte[] newLine = NdjsonWriter.toBytes(entry);
+        byte[] existing = files.get(mapKey);
+        files.put(mapKey, appendNdjsonLine(existing != null ? existing : new byte[0], newLine));
+    }
+
+    /**
+     * Appends {@code newLine} to {@code existing} NDJSON bytes, inserting a newline separator
+     * when the existing content does not already end with one.
+     */
+    private byte[] appendNdjsonLine(byte[] existing, byte[] newLine) {
+        if (existing.length == 0) {
+            return newLine;
+        }
+        boolean endsWithNewline = existing[existing.length - 1] == '\n';
+        int extraByte = endsWithNewline ? 0 : 1;
+        byte[] combined = new byte[existing.length + extraByte + newLine.length];
+        System.arraycopy(existing, 0, combined, 0, existing.length);
+        if (!endsWithNewline) {
+            combined[existing.length] = '\n';
+        }
+        System.arraycopy(newLine, 0, combined, existing.length + extraByte, newLine.length);
+        return combined;
     }
 
     private <T> void put(Map<String, byte[]> files, String reviewId,

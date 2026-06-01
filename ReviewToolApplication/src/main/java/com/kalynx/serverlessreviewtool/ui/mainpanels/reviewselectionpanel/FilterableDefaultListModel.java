@@ -1,15 +1,18 @@
 package com.kalynx.serverlessreviewtool.ui.mainpanels.reviewselectionpanel;
 
 import java.io.Serial;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.function.Function;
 
 import javax.swing.DefaultListModel;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
- * FilterableDefaultListModel - A DefaultListModel that supports filtering
- * Maintains both a full list and a filtered view
- * Automatically manages the internal list when elements are added/removed
+ * FilterableDefaultListModel - A DefaultListModel that supports filtering and surgical item updates.
+ *
+ * <p>Backs items in a {@link LinkedHashMap} keyed by a caller-supplied ID extractor so that
+ * {@link #upsertItem} and {@link #removeItemById} run in O(1) without a full list rebuild.
  *
  * @param <E> The type of elements in this list model
  */
@@ -17,73 +20,97 @@ public class FilterableDefaultListModel<E> extends DefaultListModel<E> {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    private transient final List<E> allItems = new ArrayList<>();
+    private transient final LinkedHashMap<String, E> allItems = new LinkedHashMap<>();
+    private transient final Function<E, String> idExtractor;
     private String titleFilter = "";
     private String authorFilter = "";
     private transient List<String> repositoryFilter = new ArrayList<>();
     private transient final FilterPredicate<E> filterPredicate;
 
-    /**
-     * Create a filterable list model with a custom filter predicate
-     *
-     * @param filterPredicate Function that determines if an item matches the current filters
-     */
-    public FilterableDefaultListModel(FilterPredicate<E> filterPredicate) {
+    public FilterableDefaultListModel(Function<E, String> idExtractor, FilterPredicate<E> filterPredicate) {
+        this.idExtractor = idExtractor;
         this.filterPredicate = filterPredicate;
     }
 
     /**
      * Replaces all items in one operation, calling {@link #applyFilter()} only once.
-     * Use this instead of {@link #removeAllElements()} followed by repeated
-     * {@link #addElement(Object)} calls to avoid O(n²) filter reapplication.
-     *
-     * @param items the new full set of items
      */
     public void setItems(List<E> items) {
         allItems.clear();
-        allItems.addAll(items);
+        items.forEach(item -> allItems.put(idExtractor.apply(item), item));
         applyFilter();
+    }
+
+    /**
+     * Inserts or updates a single item without rebuilding the full list.
+     *
+     * <p>If the item is already visible, it is updated in place. If it is new, it is appended.
+     * The caller is responsible for deciding whether this item belongs in this list at all
+     * (i.e. passes the tab's filter); this method does not re-evaluate tab-level filters.
+     */
+    public void upsertItem(E item) {
+        String id = idExtractor.apply(item);
+        boolean wasPresent = allItems.containsKey(id);
+        allItems.put(id, item);
+
+        int visibleIndex = findVisibleIndexById(id);
+        if (visibleIndex >= 0) {
+            super.setElementAt(item, visibleIndex);
+        } else if (!wasPresent || passesLocalFilter(item)) {
+            super.addElement(item);
+        }
+    }
+
+    /**
+     * Removes the item with the given ID from both the backing map and the visible list.
+     * No-op if the ID is not present.
+     */
+    public void removeItemById(String id) {
+        if (allItems.remove(id) == null) return;
+        int visibleIndex = findVisibleIndexById(id);
+        if (visibleIndex >= 0) {
+            super.removeElementAt(visibleIndex);
+        }
     }
 
     @Override
     public void addElement(E element) {
-        allItems.add(element);
+        allItems.put(idExtractor.apply(element), element);
         applyFilter();
     }
 
     @Override
     public void insertElementAt(E element, int index) {
-        allItems.add(element);
+        allItems.put(idExtractor.apply(element), element);
         applyFilter();
     }
 
     @Override
     public void setElementAt(E element, int index) {
         if (index >= 0 && index < super.getSize()) {
-            E oldElement = super.getElementAt(index);
-            int allItemsIndex = allItems.indexOf(oldElement);
-            if (allItemsIndex >= 0) {
-                allItems.set(allItemsIndex, element);
-            }
+            allItems.put(idExtractor.apply(element), element);
         }
         applyFilter();
     }
 
     @Override
-    @SuppressWarnings("SuspiciousMethodCalls")
+    @SuppressWarnings({"SuspiciousMethodCalls", "unchecked"})
     public boolean removeElement(Object obj) {
-        boolean removed = allItems.remove(obj);
-        if (removed) {
-            applyFilter();
+        try {
+            String id = idExtractor.apply((E) obj);
+            boolean removed = allItems.remove(id) != null;
+            if (removed) applyFilter();
+            return removed;
+        } catch (ClassCastException e) {
+            return false;
         }
-        return removed;
     }
 
     @Override
     public E remove(int index) {
         if (index >= 0 && index < super.getSize()) {
             E element = super.getElementAt(index);
-            allItems.remove(element);
+            allItems.remove(idExtractor.apply(element));
             applyFilter();
             return element;
         }
@@ -101,16 +128,6 @@ public class FilterableDefaultListModel<E> extends DefaultListModel<E> {
         super.clear();
     }
 
-    /**
-     * Filter the list based on title, author, and repositories
-     * Uses fuzzy matching (case-insensitive contains) for title and author
-     * For repositories, matches if the item's repository is in the given list
-     * All filters are applied with AND logic (all conditions must match)
-     *
-     * @param title Title filter (null or empty = no filter)
-     * @param author Author filter (null or empty = no filter)
-     * @param repositories List of repositories to match (null or empty = no filter)
-     */
     public void filter(String title, String author, List<String> repositories) {
         this.titleFilter = (title != null) ? title.toLowerCase().trim() : "";
         this.authorFilter = (author != null) ? author.toLowerCase().trim() : "";
@@ -118,9 +135,6 @@ public class FilterableDefaultListModel<E> extends DefaultListModel<E> {
         applyFilter();
     }
 
-    /**
-     * Clear all filters and show all items
-     */
     @SuppressWarnings("unused")
     public void clearFilter() {
         this.titleFilter = "";
@@ -129,40 +143,32 @@ public class FilterableDefaultListModel<E> extends DefaultListModel<E> {
         applyFilter();
     }
 
-    /**
-     * Apply the current filters to the list
-     */
     private void applyFilter() {
         super.clear();
-
-        boolean hasRepositoryFilter = !repositoryFilter.isEmpty();
-
-        for (E item : allItems) {
-            if (filterPredicate.matches(item, titleFilter, authorFilter,
-                                       hasRepositoryFilter ? repositoryFilter : null)) {
+        for (E item : allItems.values()) {
+            if (passesLocalFilter(item)) {
                 super.addElement(item);
             }
         }
     }
 
+    private boolean passesLocalFilter(E item) {
+        boolean hasRepositoryFilter = !repositoryFilter.isEmpty();
+        return filterPredicate.matches(item, titleFilter, authorFilter,
+            hasRepositoryFilter ? repositoryFilter : null);
+    }
 
-    /**
-     * Functional interface for filtering items
-     *
-     * @param <E> The type of elements to filter
-     */
+    private int findVisibleIndexById(String id) {
+        for (int i = 0; i < super.getSize(); i++) {
+            if (id.equals(idExtractor.apply(super.getElementAt(i)))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     @FunctionalInterface
     public interface FilterPredicate<E> {
-        /**
-         * Check if an item matches the given filters
-         *
-         * @param item The item to check
-         * @param titleFilter Title filter (lowercase, empty = no filter)
-         * @param authorFilter Author filter (lowercase, empty = no filter)
-         * @param repositoryFilter Repository filter (null = no filter)
-         * @return true if item matches all filters
-         */
         boolean matches(E item, String titleFilter, String authorFilter, List<String> repositoryFilter);
     }
 }
-

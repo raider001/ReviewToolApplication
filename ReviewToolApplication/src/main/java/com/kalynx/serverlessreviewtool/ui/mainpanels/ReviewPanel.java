@@ -14,6 +14,7 @@ import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
 import com.kalynx.serverlessreviewtool.plugin.NotificationPlugin;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewListUpdate;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.swingtheme.themedcomponents.ThemedSplitPane;
 import com.kalynx.serverlessreviewtool.ui.mainpanels.reviewpanel.CodePanel;
@@ -58,7 +59,7 @@ public class ReviewPanel extends ThemedPanel {
     private final ReviewPanelModel model;
     private final Git git;
     private final ReviewBranchManagerFactory branchManagerFactory;
-    private final ReviewCloneManager cloneManager;
+
 
     private final ReviewDetailPanel reviewDetailPanel;
     private final CodePanel codePanel;
@@ -103,7 +104,6 @@ public class ReviewPanel extends ThemedPanel {
         this.model = reviewPanelModel;
         this.git = git;
         this.branchManagerFactory = branchManagerFactory;
-        this.cloneManager = cloneManager;
 
         FileDiffManager fileDiffManager = new FileDiffManager(cloneManager, reviewPanelModel.codeViewerModel);
         this.reviewDetailPanel = new ReviewDetailPanel(settingsManager, reviewPanelModel.reviewDetailModel);
@@ -153,9 +153,15 @@ public class ReviewPanel extends ThemedPanel {
         reviewContextManager.addListener(this::onReviewContextChanged);
         settingsManager.addUserNameListener(model.commentsPanelModel::setCurrentUser);
         model.reviewDetailModel.status.addChangeListener(this::onReviewStatusChanged);
-        pluginManager.addListenerToNotificationPlugins(
-            NotificationPlugin.NotificationType.REVIEW_UPDATED,
-            autoRefreshController::onReviewUpdatesReceived);
+        pluginManager.getNotificationPlugin().ifPresent(plugin ->
+            plugin.addListener(NotificationPlugin.NotificationType.REVIEW_UPDATED, payloads -> {
+                ReviewListUpdate[] updates = java.util.Arrays.stream(payloads)
+                    .filter(ReviewListUpdate.class::isInstance)
+                    .map(ReviewListUpdate.class::cast)
+                    .toArray(ReviewListUpdate[]::new);
+                if (updates.length > 0) autoRefreshController.onReviewUpdatesReceived(updates);
+            })
+        );
     }
 
     private void configureLayout() {
@@ -220,7 +226,7 @@ public class ReviewPanel extends ThemedPanel {
         LOGGER.debug("Opening edit dialog for review: {}", currentReviewContext.reviewId);
         EditReviewDialog dialog = new EditReviewDialog(
             this, currentReviewContext, reviewFormModels, repositoryManager, reviewContextManager, git, branchManagerFactory);
-        dialog.setOnReviewUpdated(() -> refreshReviewDetail(currentReviewContext));
+        dialog.setOnReviewUpdated(() -> refreshReviewDetail(reviewContextManager.getReviewContext()));
         dialog.setVisible(true);
     }
 

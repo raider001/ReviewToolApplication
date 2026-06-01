@@ -1,7 +1,7 @@
 package com.kalynx.serverlessreviewtool.managers;
 
 import com.kalynx.serverlessreviewtool.models.Repository;
-import com.kalynx.serverlessreviewtool.plugin.RepositoryDescriptor;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.RepositoryDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

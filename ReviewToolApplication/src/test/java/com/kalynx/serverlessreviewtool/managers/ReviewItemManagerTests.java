@@ -3,9 +3,9 @@ package com.kalynx.serverlessreviewtool.managers;
 import com.kalynx.serverlessreviewtool.git.ReviewItemLoader;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
-import com.kalynx.serverlessreviewtool.plugin.RepositoryDescriptor;
-import com.kalynx.serverlessreviewtool.plugin.ReviewListUpdate;
-import com.kalynx.serverlessreviewtool.plugin.ReviewUpdateType;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.RepositoryDescriptor;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewListUpdate;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewUpdateType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

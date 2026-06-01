@@ -105,7 +105,7 @@ public class LoginPanel extends ThemedPanel {
             return;
         }
 
-        if (!pluginManager.validateUser(username, validation)) {
+        if (!pluginManager.getUserPlugin().map(p -> p.validateUser(username, validation)).orElse(false)) {
             statusLabel.setText("Invalid credentials. Please try again.");
             return;
         }

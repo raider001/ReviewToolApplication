@@ -90,6 +90,8 @@ public class ReviewTabsPanel extends ThemedPanel {
 
     private void setupListeners() {
         model.allReviews.addChangeListener(_ -> SwingUtilities.invokeLater(this::refreshAllTabs));
+        model.upsertedReview.addChangeListener(item -> SwingUtilities.invokeLater(() -> upsertItemInAllTabs(item)));
+        model.removedReviewId.addChangeListener(id -> SwingUtilities.invokeLater(() -> removeItemFromAllTabs(id)));
         settingsManager.addReviewTabsListener(() -> SwingUtilities.invokeLater(this::reloadFromSettings));
 
         tabbedPane.setOnAddRequested(this::onAddTabRequested);
@@ -190,6 +192,30 @@ public class ReviewTabsPanel extends ThemedPanel {
         persistTabs();
     }
 
+    private void upsertItemInAllTabs(ReviewItem item) {
+        if (item == null) return;
+        for (int i = 0; i < tabConfigs.size(); i++) {
+            FilterableDefaultListModel<ReviewItem> listModel =
+                (FilterableDefaultListModel<ReviewItem>) reviewLists.get(i).getModel();
+            if (model.shouldShowInTab(item, tabConfigs.get(i))) {
+                listModel.upsertItem(item);
+            } else {
+                listModel.removeItemById(item.getReviewId());
+            }
+            tabbedPane.setUserTabCount(i, tabConfigs.get(i).getName(), listModel.getSize());
+        }
+    }
+
+    private void removeItemFromAllTabs(String reviewId) {
+        if (reviewId == null) return;
+        for (int i = 0; i < reviewLists.size(); i++) {
+            FilterableDefaultListModel<ReviewItem> listModel =
+                (FilterableDefaultListModel<ReviewItem>) reviewLists.get(i).getModel();
+            listModel.removeItemById(reviewId);
+            tabbedPane.setUserTabCount(i, tabConfigs.get(i).getName(), listModel.getSize());
+        }
+    }
+
     private void persistTabs() {
         settingsManager.getSettings().setReviewTabs(new ArrayList<>(tabConfigs));
         settingsManager.saveSettings();
@@ -200,18 +226,3 @@ public class ReviewTabsPanel extends ThemedPanel {
         return idx >= 0 ? title.substring(0, idx) : title;
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

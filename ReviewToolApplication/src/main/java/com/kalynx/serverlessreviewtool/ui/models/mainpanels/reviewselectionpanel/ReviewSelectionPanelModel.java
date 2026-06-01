@@ -6,27 +6,24 @@ import com.kalynx.serverlessreviewtool.models.ReviewStatus;
 import com.kalynx.swingtheme.ComponentModel;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.regex.Pattern;
 
 public class ReviewSelectionPanelModel {
 
+    /** Fires when a full repository refresh replaces the review list. */
     public final ComponentModel<List<ReviewItem>> allReviews = new ComponentModel<>();
-    public final ComponentModel<List<ReviewItem>> allReviewsFiltered = new ComponentModel<>();
-    public final ComponentModel<List<ReviewItem>> myReviews = new ComponentModel<>();
-    public final ComponentModel<List<ReviewItem>> openReviews = new ComponentModel<>();
-    public final ComponentModel<List<ReviewItem>> completedReviews = new ComponentModel<>();
-
-    public final ComponentModel<String> titleFilter = new ComponentModel<>();
-    public final ComponentModel<String> authorFilter = new ComponentModel<>();
-    public final ComponentModel<List<String>> repositoryFilter = new ComponentModel<>();
+    /** Fires when a targeted update adds or modifies a single review. */
+    public final ComponentModel<ReviewItem> upsertedReview = new ComponentModel<>();
+    /** Fires when a targeted delete removes a review entirely; value is the review ID. */
+    public final ComponentModel<String> removedReviewId = new ComponentModel<>();
 
     public final ComponentModel<ReviewItem> selectedReview = new ComponentModel<>();
-
-    public final ComponentModel<Integer> selectedTabIndex = new ComponentModel<>();
-
     public final ComponentModel<Boolean> isLoading = new ComponentModel<>();
     public final ComponentModel<String> errorMessage = new ComponentModel<>();
+
+    private final LinkedHashMap<String, ReviewItem> reviewMap = new LinkedHashMap<>();
 
     private String currentUserEmail = "";
     private String currentUserName = "";
@@ -38,131 +35,66 @@ public class ReviewSelectionPanelModel {
     public void setCurrentUser(String email, String name) {
         this.currentUserEmail = email != null ? email : "";
         this.currentUserName = name != null ? name : "";
-        applyFiltersToAllLists(allReviews.getValue());
     }
 
     private void initializeDefaults() {
         allReviews.setValue(new ArrayList<>());
-        allReviewsFiltered.setValue(new ArrayList<>());
-        myReviews.setValue(new ArrayList<>());
-        openReviews.setValue(new ArrayList<>());
-        completedReviews.setValue(new ArrayList<>());
-        titleFilter.setValue("");
-        authorFilter.setValue("");
-        repositoryFilter.setValue(new ArrayList<>());
         selectedReview.setValue(null);
-        selectedTabIndex.setValue(0);
         isLoading.setValue(false);
         errorMessage.setValue("");
     }
 
     public void clear() {
+        reviewMap.clear();
         initializeDefaults();
     }
 
+    /** Replaces the full review list and notifies {@link #allReviews} listeners. */
     public void setAllReviews(List<ReviewItem> reviews) {
+        reviewMap.clear();
+        reviews.forEach(r -> reviewMap.put(r.getReviewId(), r));
         allReviews.setValue(new ArrayList<>(reviews));
-        applyFiltersToAllLists(reviews);
     }
 
-    public void setFilters(String title, String author, List<String> repositories) {
-        titleFilter.setValue(title != null ? title : "");
-        authorFilter.setValue(author != null ? author : "");
-        repositoryFilter.setValue(repositories != null ? new ArrayList<>(repositories) : new ArrayList<>());
-        applyFiltersToAllLists(allReviews.getValue());
+    /** Inserts or updates a single review and notifies {@link #upsertedReview} listeners. */
+    public void upsertReview(ReviewItem item) {
+        reviewMap.put(item.getReviewId(), item);
+        upsertedReview.setValue(item);
     }
 
-    private void applyFiltersToAllLists(List<ReviewItem> reviews) {
-        String title = titleFilter.getValue();
-        String author = authorFilter.getValue();
-        List<String> repos = repositoryFilter.getValue();
-
-        List<ReviewItem> filtered = reviews.stream()
-            .filter(r -> matchesFilters(r, title, author, repos))
-            .toList();
-
-        allReviewsFiltered.setValue(filtered);
-        myReviews.setValue(filterMyReviews(filtered));
-        openReviews.setValue(filterOpenReviews(filtered));
-        completedReviews.setValue(filterCompletedReviews(filtered));
-    }
-
-    private boolean matchesFilters(ReviewItem review, String title, String author, List<String> repos) {
-        boolean titleMatch = title.isEmpty() ||
-            review.getTitle().toLowerCase().contains(title.toLowerCase());
-
-        boolean authorMatch = author.isEmpty() ||
-            review.getAuthor().toLowerCase().contains(author.toLowerCase());
-
-        boolean repoMatch = repos == null || repos.isEmpty() ||
-            review.getRepositories().stream().anyMatch(repos::contains);
-
-        return titleMatch && authorMatch && repoMatch;
-    }
-
-    private List<ReviewItem> filterMyReviews(List<ReviewItem> reviews) {
-        return reviews.stream()
-            .filter(r -> isMyReview(r) && !isCompleted(r))
-            .toList();
-    }
-
-    private List<ReviewItem> filterOpenReviews(List<ReviewItem> reviews) {
-        return reviews.stream()
-            .filter(r -> !isMyReview(r) && !isCompleted(r))
-            .toList();
-    }
-
-    private List<ReviewItem> filterCompletedReviews(List<ReviewItem> reviews) {
-        return reviews.stream()
-            .filter(this::isCompleted)
-            .toList();
-    }
-
-    private boolean isMyReview(ReviewItem review) {
-        if (currentUserEmail.isEmpty() && currentUserName.isEmpty()) {
-            return false;
-        }
-
-        boolean isAuthor = (!currentUserName.isEmpty() && currentUserName.equals(review.getAuthor())) ||
-                          (!currentUserEmail.isEmpty() && currentUserEmail.equals(review.getAuthor()));
-
-        boolean isReviewer = review.getReviewers().stream()
-            .anyMatch(reviewer ->
-                (!currentUserName.isEmpty() && reviewer.equals(currentUserName)) ||
-                (!currentUserEmail.isEmpty() && reviewer.equals(currentUserEmail))
-            );
-
-        return isAuthor || isReviewer;
-    }
-
-    private boolean isCompleted(ReviewItem review) {
-        return review.getStatus() == ReviewStatus.COMPLETED;
+    /** Removes a review by ID and notifies {@link #removedReviewId} listeners. */
+    public void removeReview(String reviewId) {
+        reviewMap.remove(reviewId);
+        removedReviewId.setValue(reviewId);
     }
 
     /**
-     * Returns all reviews from {@code allReviews} that match the given tab filter configuration.
-     *
-     * @param tab the tab's filter configuration
-     * @return filtered list of review items
+     * Returns all reviews that match the given tab filter configuration.
      */
     public List<ReviewItem> filterForTab(AppSettings.ReviewTabConfig tab) {
-        List<ReviewItem> all = allReviews.getValue();
-        if (all == null || all.isEmpty()) return new ArrayList<>();
+        if (reviewMap.isEmpty()) return new ArrayList<>();
+        return reviewMap.values().stream()
+            .filter(r -> shouldShowInTab(r, tab))
+            .toList();
+    }
 
+    /**
+     * Returns true if the given review item passes all filters defined by the tab config.
+     * Used for O(1) per-item filter checks during targeted upsert updates.
+     */
+    public boolean shouldShowInTab(ReviewItem r, AppSettings.ReviewTabConfig tab) {
         String titleContains          = tab.getTitleContains();
         String authorContains         = tab.getAuthorContains();
         List<Pattern> reviewerRegexes = compilePatterns(tab.getReviewerPatterns());
         List<Pattern> repoRegexes     = compilePatterns(tab.getRepositories());
         List<String> statusFilters    = tab.getStatusFilters();
 
-        return all.stream()
-            .filter(r -> titleContains.isEmpty()  || r.getTitle().toLowerCase().contains(titleContains.toLowerCase()))
-            .filter(r -> authorContains.isEmpty() || r.getAuthor().toLowerCase().contains(authorContains.toLowerCase()))
-            .filter(r -> matchesCompiledPatterns(r.getReviewers(), reviewerRegexes))
-            .filter(r -> matchesCompiledPatterns(r.getRepositories(), repoRegexes))
-            .filter(r -> matchesStatusFilters(r, statusFilters))
-            .filter(r -> matchesInvolvementFilter(r, tab.getInvolvementFilter()))
-            .toList();
+        return (titleContains.isEmpty()  || r.getTitle().toLowerCase().contains(titleContains.toLowerCase()))
+            && (authorContains.isEmpty() || r.getAuthor().toLowerCase().contains(authorContains.toLowerCase()))
+            && matchesCompiledPatterns(r.getReviewers(), reviewerRegexes)
+            && matchesCompiledPatterns(r.getRepositories(), repoRegexes)
+            && matchesStatusFilters(r, statusFilters)
+            && matchesInvolvementFilter(r, tab.getInvolvementFilter());
     }
 
     private List<Pattern> compilePatterns(List<String> wildcards) {
@@ -204,9 +136,25 @@ public class ReviewSelectionPanelModel {
         };
     }
 
+    private boolean isMyReview(ReviewItem review) {
+        if (currentUserEmail.isEmpty() && currentUserName.isEmpty()) {
+            return false;
+        }
+
+        boolean isAuthor = (!currentUserName.isEmpty() && currentUserName.equals(review.getAuthor())) ||
+                          (!currentUserEmail.isEmpty() && currentUserEmail.equals(review.getAuthor()));
+
+        boolean isReviewer = review.getReviewers().stream()
+            .anyMatch(reviewer ->
+                (!currentUserName.isEmpty() && reviewer.equals(currentUserName)) ||
+                (!currentUserEmail.isEmpty() && reviewer.equals(currentUserEmail))
+            );
+
+        return isAuthor || isReviewer;
+    }
+
     public void setError(String error) {
         errorMessage.setValue(error);
         isLoading.setValue(false);
     }
-
 }
