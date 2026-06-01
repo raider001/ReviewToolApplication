@@ -13,7 +13,14 @@ import net.miginfocom.swing.MigLayout;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.awt.geom.Path2D;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
@@ -291,12 +298,34 @@ public final class StatisticsPanel extends ThemedPanel {
         private List<List<Sample>> datasets   = List.of();
         private double             dynamicMax = 10;
 
+        private int hoverX = -1;
+        private int hoverY = -1;
+
         ScaledLineChart(Color lineColor, String unit, double fixedMax) {
             this.lineColor = lineColor;
             this.unit      = unit;
             this.fixedMax  = fixedMax;
             setOpaque(true);
             ThemeManager.getInstance().addThemeChangeListener(this::repaint);
+            setupHoverListeners();
+        }
+
+        private void setupHoverListeners() {
+            addMouseMotionListener(new MouseMotionAdapter() {
+                @Override
+                public void mouseMoved(MouseEvent e) {
+                    hoverX = e.getX();
+                    hoverY = e.getY();
+                    repaint();
+                }
+            });
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    hoverX = -1;
+                    repaint();
+                }
+            });
         }
 
         void setData(List<Sample> data) { setDataSets(List.of(data)); }
@@ -361,6 +390,8 @@ public final class StatisticsPanel extends ThemedPanel {
             g2.setColor(gridColor);
             g2.setStroke(new BasicStroke(0.5f));
             g2.drawRect(chartX, chartY, chartW, chartH);
+
+            Shape originalClip = g2.getClip();
             g2.clipRect(chartX, chartY, chartW, chartH);
 
             boolean single = datasets.size() == 1;
@@ -414,18 +445,148 @@ public final class StatisticsPanel extends ThemedPanel {
                 g2.drawString(msg, chartX + (chartW - mw) / 2, chartY + chartH / 2);
             }
 
+            g2.setClip(originalClip);
+
+            if (hoverX >= chartX && hoverX <= chartX + chartW) {
+                drawHoverOverlay(g2, chartX, chartY, chartW, chartH, yMax, fm, labelFont, theme);
+            }
+
             g2.dispose();
         }
 
+        private void drawHoverOverlay(Graphics2D g2, int chartX, int chartY, int chartW, int chartH,
+                                      double yMax, FontMetrics fm, Font labelFont, Theme theme) {
+            List<Sample> refDataset = datasets.stream().filter(d -> d.size() >= 2).findFirst().orElse(null);
+            if (refDataset == null) return;
+
+            long tMin = refDataset.getFirst().timestampMs();
+            long tMax = refDataset.getLast().timestampMs();
+            if (tMax == tMin) return;
+
+            long tHover = tMin + (long)((double)(hoverX - chartX) / chartW * (tMax - tMin));
+
+            Color fgColor = theme.getForegroundColor();
+            g2.setColor(new Color(fgColor.getRed(), fgColor.getGreen(), fgColor.getBlue(), 100));
+            g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{4, 3}, 0));
+            g2.drawLine(hoverX, chartY, hoverX, chartY + chartH);
+
+            HoverPoint hp = resolveHoverPoint(chartY, chartH, yMax, tHover);
+            if (hp == null) return;
+
+            drawHoverDot(g2, chartY, chartH, yMax, hp);
+
+            List<String> lines = buildTooltipLines(tHover, hp);
+            drawTooltipBox(g2, lines, fm, labelFont, chartX, chartY, chartW, chartH, theme, hp.color());
+        }
+
+        private HoverPoint resolveHoverPoint(int chartY, int chartH, double yMax, long tHover) {
+            if (datasets.isEmpty()) return null;
+            if (datasets.size() == 1) {
+                double value = interpolateValue(datasets.getFirst(), tHover);
+                return Double.isNaN(value) ? null : new HoverPoint(0, value, lineColor);
+            }
+            int    closestIdx   = -1;
+            double closestValue = Double.NaN;
+            double minDist      = Double.MAX_VALUE;
+            for (int di = 0; di < datasets.size(); di++) {
+                double v = interpolateValue(datasets.get(di), tHover);
+                if (Double.isNaN(v)) continue;
+                float dotY = chartY + chartH - (float)(Math.min(v, yMax) / yMax) * chartH;
+                double dist = Math.abs(dotY - hoverY);
+                if (dist < minDist) {
+                    minDist      = dist;
+                    closestIdx   = di;
+                    closestValue = v;
+                }
+            }
+            if (closestIdx < 0) return null;
+            return new HoverPoint(closestIdx, closestValue, datasetColor(closestIdx, datasets.size()));
+        }
+
+        private void drawHoverDot(Graphics2D g2, int chartY, int chartH, double yMax, HoverPoint hp) {
+            float dotY = chartY + chartH - (float)(Math.min(hp.value(), yMax) / yMax) * chartH;
+            if (dotY < chartY || dotY > chartY + chartH) return;
+            g2.setStroke(new BasicStroke(1.5f));
+            g2.setColor(hp.color());
+            g2.fillOval(hoverX - 4, (int) dotY - 4, 8, 8);
+            g2.setColor(Color.WHITE);
+            g2.drawOval(hoverX - 4, (int) dotY - 4, 8, 8);
+        }
+
+        private List<String> buildTooltipLines(long tHover, HoverPoint hp) {
+            List<String> lines = new ArrayList<>();
+            ZonedDateTime zdt  = Instant.ofEpochMilli(tHover).atZone(ZoneId.systemDefault());
+            lines.add(String.format("%02d:%02d:%02d", zdt.getHour(), zdt.getMinute(), zdt.getSecond()));
+            String valueText = datasets.size() > 1
+                    ? "CPU " + hp.datasetIndex() + ": " + formatLabel(hp.value())
+                    : formatLabel(hp.value());
+            lines.add(valueText);
+            return lines;
+        }
+
+        private void drawTooltipBox(Graphics2D g2, List<String> lines, FontMetrics fm, Font labelFont,
+                                    int chartX, int chartY, int chartW, int chartH,
+                                    Theme theme, Color valueColor) {
+            int padding = 6;
+            int lineH   = fm.getHeight();
+            int boxW    = lines.stream().mapToInt(fm::stringWidth).max().orElse(40) + padding * 2;
+            int boxH    = lines.size() * lineH + padding * 2;
+
+            int tipX = hoverX + 12;
+            if (tipX + boxW > chartX + chartW) tipX = hoverX - boxW - 12;
+            int tipY = chartY + 4;
+            if (tipY + boxH > chartY + chartH) tipY = chartY + chartH - boxH - 4;
+
+            Color bg = theme.getBackgroundColor();
+            g2.setColor(new Color(bg.getRed(), bg.getGreen(), bg.getBlue(), 220));
+            g2.fillRoundRect(tipX, tipY, boxW, boxH, 6, 6);
+
+            Color fg = theme.getForegroundColor();
+            g2.setColor(new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 80));
+            g2.setStroke(new BasicStroke(1f));
+            g2.drawRoundRect(tipX, tipY, boxW, boxH, 6, 6);
+
+            int textX = tipX + padding;
+            int textY = tipY + padding + fm.getAscent();
+            for (int i = 0; i < lines.size(); i++) {
+                if (i == 0) {
+                    g2.setColor(theme.getSecondaryTextColor());
+                    g2.setFont(labelFont);
+                } else {
+                    g2.setColor(valueColor);
+                    g2.setFont(labelFont.deriveFont(Font.BOLD));
+                }
+                g2.drawString(lines.get(i), textX, textY + i * lineH);
+            }
+        }
+
+        private double interpolateValue(List<Sample> data, long tHover) {
+            if (data.isEmpty()) return Double.NaN;
+            if (data.size() == 1) return data.getFirst().value();
+            for (int i = 0; i < data.size() - 1; i++) {
+                Sample a = data.get(i);
+                Sample b = data.get(i + 1);
+                if (tHover >= a.timestampMs() && tHover <= b.timestampMs()) {
+                    double t = (double)(tHover - a.timestampMs()) / (b.timestampMs() - a.timestampMs());
+                    return a.value() + t * (b.value() - a.value());
+                }
+            }
+            return tHover < data.getFirst().timestampMs()
+                    ? data.getFirst().value()
+                    : data.getLast().value();
+        }
+
         private String formatLabel(double value) {
-            if ("%".equals(unit))  return String.format("%.0f%%", value);
+            if ("%".equals(unit))  return String.format("%.1f%%", value);
             if ("MB".equals(unit)) {
-                if (value >= 1024) return String.format("%.1fG", value / 1024);
-                return String.format("%.0fM", value);
+                if (value >= 1024) return String.format("%.1f GB", value / 1024);
+                return String.format("%.0f MB", value);
             }
             if (value >= 1_000_000) return String.format("%.1fM", value / 1_000_000);
             if (value >= 1_000)     return String.format("%.0fK", value / 1_000);
-            return String.format("%.0f", value);
+            return String.format("%.1f", value);
         }
+
+        private record HoverPoint(int datasetIndex, double value, Color color) {}
     }
 }

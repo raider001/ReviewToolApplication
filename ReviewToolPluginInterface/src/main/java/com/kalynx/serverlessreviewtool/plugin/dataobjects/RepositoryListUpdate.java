@@ -1,4 +1,4 @@
-package com.kalynx.serverlessreviewtool.plugin;
+package com.kalynx.serverlessreviewtool.plugin.dataobjects;
 
 import java.time.Instant;
 import java.util.List;
