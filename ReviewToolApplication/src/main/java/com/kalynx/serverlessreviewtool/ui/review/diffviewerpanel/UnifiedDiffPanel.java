@@ -19,7 +19,7 @@ import java.util.function.Consumer;
 
 /**
  * UnifiedDiffPanel renders a file diff in unified format.
- * The full after-content is shown and added lines are highlighted.
+ * Removed lines are highlighted in red and added lines in green, interleaved with unchanged context.
  */
 public class UnifiedDiffPanel extends ThemedPanel {
 
@@ -51,9 +51,10 @@ public class UnifiedDiffPanel extends ThemedPanel {
 
     /**
      * Renders the unified diff from the provided content strings.
+     * Removed lines (from the diff) are interleaved with the after-content and highlighted.
      *
-     * @param right   after-content to display
-     * @param unified unified diff used to determine which lines were added
+     * @param right   after-content used to fill context and post-hunk lines
+     * @param unified unified diff used to extract removed, added, and context lines
      * @param file    the file being viewed (used for syntax highlighting)
      */
     public void render(String right, String unified, ReviewFile file) {
@@ -135,6 +136,10 @@ public class UnifiedDiffPanel extends ThemedPanel {
         StyleConstants.setForeground(addedStyle, theme.getForegroundColor());
         StyleConstants.setBackground(addedStyle, theme.getAddedLineColor());
 
+        Style removedStyle = textPane.addStyle("removed", null);
+        StyleConstants.setForeground(removedStyle, theme.getForegroundColor());
+        StyleConstants.setBackground(removedStyle, theme.getRemovedLineColor());
+
         Style defaultStyle = textPane.addStyle("default", null);
         StyleConstants.setForeground(defaultStyle, theme.getForegroundColor());
 
@@ -150,6 +155,11 @@ public class UnifiedDiffPanel extends ThemedPanel {
                     doc.setCharacterAttributes(offset, lineLength, addedStyle, true);
                 }
                 unifiedPane.markLineAdded(lineNumber);
+            } else if (cleaned.removedLines().contains(i)) {
+                if (offset + lineLength <= doc.getLength()) {
+                    doc.setCharacterAttributes(offset, lineLength, removedStyle, true);
+                }
+                unifiedPane.markLineRemoved(lineNumber);
             } else {
                 if (offset + lineLength <= doc.getLength()) {
                     doc.setCharacterAttributes(offset, lineLength, defaultStyle, true);

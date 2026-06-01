@@ -7,8 +7,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -127,44 +125,66 @@ public final class DiffAligner {
     }
 
     /**
-     * Builds a full-file representation using afterContent as display text,
-     * marking only the lines that appear as additions in the diff.
+     * Builds a display representation of the diff by interleaving removed lines, added lines,
+     * and context lines from the unified diff. Lines before and after all hunks are taken from
+     * {@code afterContent}. The returned content is longer than {@code afterContent} whenever
+     * removed lines are present.
      *
      * @param afterContent content of the file after changes
      * @param unifiedDiff  unified diff output from git
-     * @return cleaned diff with the full file content and added-line index set
+     * @return cleaned diff with interleaved content and added/removed line index sets
      */
     public static CleanedDiff buildFullFileDiff(String afterContent, String unifiedDiff) {
-        if (unifiedDiff == null || unifiedDiff.isEmpty()) {
+        if (unifiedDiff == null || !unifiedDiff.contains("@@")) {
             return new CleanedDiff(afterContent, Set.of(), Set.of());
         }
 
+        String[] afterLines = afterContent.split("\n", -1);
+        List<String> displayLines = new ArrayList<>();
         Set<Integer> addedLineIndices = new HashSet<>();
-        Pattern hunkPattern = Pattern.compile("\\+([0-9]+)");
-        int newFileLine = -1;
+        Set<Integer> removedLineIndices = new HashSet<>();
+
+        int lastSyncedNewLine = 0;
+        int currentNewLine = -1;
 
         for (String line : unifiedDiff.split("\n")) {
             if (isHeaderLine(line)) continue;
 
             if (line.startsWith("@@")) {
-                Matcher m = hunkPattern.matcher(line);
-                if (m.find()) {
-                    newFileLine = Integer.parseInt(m.group(1));
+                int hunkNewStart = parseHunkNewStart(line);
+                if (hunkNewStart >= 0) {
+                    while (lastSyncedNewLine < hunkNewStart && lastSyncedNewLine < afterLines.length) {
+                        displayLines.add(afterLines[lastSyncedNewLine]);
+                        lastSyncedNewLine++;
+                    }
+                    currentNewLine = hunkNewStart;
                 }
                 continue;
             }
 
-            if (newFileLine < 0) continue;
+            if (currentNewLine < 0) continue;
 
-            if (line.startsWith("+")) {
-                addedLineIndices.add(newFileLine - 1);
-                newFileLine++;
+            if (line.startsWith("-")) {
+                removedLineIndices.add(displayLines.size());
+                displayLines.add(line.length() > 1 ? line.substring(1) : "");
+            } else if (line.startsWith("+")) {
+                addedLineIndices.add(displayLines.size());
+                displayLines.add(line.length() > 1 ? line.substring(1) : "");
+                currentNewLine++;
+                lastSyncedNewLine = currentNewLine;
             } else if (line.startsWith(" ")) {
-                newFileLine++;
+                displayLines.add(line.length() > 1 ? line.substring(1) : "");
+                currentNewLine++;
+                lastSyncedNewLine = currentNewLine;
             }
         }
 
-        return new CleanedDiff(afterContent, addedLineIndices, Set.of());
+        while (lastSyncedNewLine < afterLines.length) {
+            displayLines.add(afterLines[lastSyncedNewLine]);
+            lastSyncedNewLine++;
+        }
+
+        return new CleanedDiff(String.join("\n", displayLines), addedLineIndices, removedLineIndices);
     }
 
     /**

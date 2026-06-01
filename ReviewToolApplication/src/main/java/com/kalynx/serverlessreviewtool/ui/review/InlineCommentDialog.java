@@ -318,7 +318,7 @@ public class InlineCommentDialog extends JDialog {
         commentsContainer.revalidate();
         commentsContainer.repaint();
 
-        if (wasAtBottom && vertical != null) {
+        if (wasAtBottom) {
             final JScrollBar sb = vertical;
             SwingUtilities.invokeLater(() -> sb.setValue(sb.getMaximum()));
         }
@@ -406,6 +406,12 @@ public class InlineCommentDialog extends JDialog {
             return;
         }
 
+        resolveToggleButton.setEnabled(false);
+        String loadingId = "resolve-toggle-" + filePath + "-" + lineNumber;
+        loadingStateManager.startLoading(loadingId);
+
+        List<CommentSnapshot> snapshots = lineComments.stream().map(CommentSnapshot::of).toList();
+
         if (!conversationNeedsResolution) {
             for (ReviewComment comment : lineComments) {
                 comment.setNeedsResolution(true);
@@ -421,12 +427,21 @@ public class InlineCommentDialog extends JDialog {
             }
         }
 
-        loadExistingComments();
-        notifyCommentChanged();
-
         reviewContextManager.resolveAllComments(reviewContext.reviewId, lineComments)
+            .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                loadingStateManager.stopLoading(loadingId);
+                loadExistingComments();
+                notifyCommentChanged();
+                resolveToggleButton.setEnabled(true);
+            }))
             .exceptionally(error -> {
+                for (int i = 0; i < lineComments.size(); i++) {
+                    snapshots.get(i).restoreTo(lineComments.get(i));
+                }
                 SwingUtilities.invokeLater(() -> {
+                    loadingStateManager.stopLoading(loadingId);
+                    updateResolutionUI();
+                    resolveToggleButton.setEnabled(true);
                     ThemedConfirmDialog.showMessage(this, "Save Error",
                         "Failed to save resolution status: " + error.getMessage());
                 });
@@ -455,26 +470,53 @@ public class InlineCommentDialog extends JDialog {
             false
         );
 
-        reviewContext.addComment(newComment);
-        newCommentEditor.setHtml("");
-
-        SwingUtilities.invokeLater(() -> {
-            JScrollBar vertical = ((JScrollPane) commentsContainer.getParent().getParent()).getVerticalScrollBar();
-            vertical.setValue(vertical.getMaximum());
-        });
+        addButton.setEnabled(false);
+        addButton.setText("Saving...");
+        String loadingId = "add-comment-" + commentId;
+        loadingStateManager.startLoading(loadingId);
 
         reviewContextManager.saveComment(reviewContext.reviewId, newComment)
+            .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                reviewContext.addComment(newComment);
+                newCommentEditor.setHtml("");
+                loadingStateManager.stopLoading(loadingId);
+                addButton.setEnabled(true);
+                addButton.setText("Add Comment");
+                loadExistingComments();
+                notifyCommentChanged();
+                SwingUtilities.invokeLater(() -> {
+                    if (commentsContainer.getParent() != null &&
+                        commentsContainer.getParent().getParent() instanceof JScrollPane sp) {
+                        sp.getVerticalScrollBar().setValue(Integer.MAX_VALUE);
+                    }
+                });
+            }))
             .exceptionally(error -> {
                 SwingUtilities.invokeLater(() -> {
-                    newCommentEditor.setEnabled(true);
+                    loadingStateManager.stopLoading(loadingId);
                     addButton.setEnabled(true);
                     addButton.setText("Add Comment");
                     ThemedConfirmDialog.showMessage(this, "Save Error",
                         "Failed to save comment: " + error.getMessage());
-                    reviewContext.comments.remove(newComment);
                 });
                 return null;
             });
+    }
+
+    private record CommentSnapshot(boolean needsResolution, boolean resolved, String resolvedBy) {
+
+        static CommentSnapshot of(ReviewComment comment) {
+            return new CommentSnapshot(comment.needsResolution(), comment.isResolved(), comment.getResolvedBy());
+        }
+
+        void restoreTo(ReviewComment comment) {
+            comment.setNeedsResolution(needsResolution);
+            if (resolved) {
+                comment.markResolved(resolvedBy != null ? resolvedBy : "");
+            } else {
+                comment.markUnresolved();
+            }
+        }
     }
 
     private void notifyCommentChanged() {

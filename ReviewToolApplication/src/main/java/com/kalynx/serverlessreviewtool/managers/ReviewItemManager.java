@@ -45,6 +45,8 @@ public class ReviewItemManager {
     private final ReviewItemLoader reviewItemLoader;
     private volatile List<RepositoryDescriptor> notificationPluginRepositories = List.of();
     private final Map<String, CompletableFuture<Void>> inFlightRepositoryRefreshes = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicBoolean initialLoadFired = new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final List<Runnable> initialLoadCompleteListeners = new ArrayList<>();
 
     public ReviewItemManager(Git git, ReviewItemLoader reviewItemLoader) {
         this.git = git;
@@ -67,6 +69,37 @@ public class ReviewItemManager {
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
             .whenComplete((_, ignored) -> LoadingStateManager.getInstance().stopLoading("refresh-review-items"));
+    }
+
+    /**
+     * Registers a one-time listener that is invoked when all repository refreshes triggered
+     * by the first {@link #setNotificationPluginRepositories} call have completed.
+     * If the initial load has already completed the listener is invoked immediately.
+     *
+     * @param listener called once when the initial load finishes
+     */
+    public void addInitialLoadCompleteListener(Runnable listener) {
+        if (initialLoadFired.get()) {
+            listener.run();
+            return;
+        }
+        synchronized (lock) {
+            if (initialLoadFired.get()) {
+                listener.run();
+                return;
+            }
+            initialLoadCompleteListeners.add(listener);
+        }
+    }
+
+    private void fireInitialLoadComplete() {
+        if (initialLoadFired.compareAndSet(false, true)) {
+            List<Runnable> listeners;
+            synchronized (lock) {
+                listeners = new ArrayList<>(initialLoadCompleteListeners);
+            }
+            listeners.forEach(Runnable::run);
+        }
     }
 
     /**
@@ -95,9 +128,19 @@ public class ReviewItemManager {
             .filter(repo -> !currentSet.contains(repo))
             .forEach(this::removeRepositorySnapshot);
 
-        currentSet.stream()
+        List<CompletableFuture<Void>> newRepoFutures = currentSet.stream()
             .filter(repo -> !previousSet.contains(repo))
-            .forEach(this::refreshRepository);
+            .map(this::refreshRepository)
+            .toList();
+
+        if (!initialLoadFired.get()) {
+            if (!newRepoFutures.isEmpty()) {
+                CompletableFuture.allOf(newRepoFutures.toArray(new CompletableFuture[0]))
+                    .thenRun(this::fireInitialLoadComplete);
+            } else {
+                fireInitialLoadComplete();
+            }
+        }
     }
 
     private List<String> resolveRepositoryNames() {

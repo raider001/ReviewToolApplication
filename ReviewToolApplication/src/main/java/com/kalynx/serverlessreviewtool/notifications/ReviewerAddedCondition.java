@@ -9,8 +9,10 @@ import java.util.Optional;
  * Fires a notification when the current user has been added as a reviewer to a review.
  *
  * <p>The condition compares the reviewer list of the previous and next {@link ReviewContext}.
- * A notification is sent when the current user is present in the next reviewer list but
- * was absent from the previous one.
+ * A notification is sent only when both contexts are non-null, the current user is present
+ * in {@code next}'s reviewer list, and was absent from {@code previous}'s reviewer list.
+ * Requiring a non-null {@code previous} ensures that simply opening a review the user already
+ * belongs to does not trigger a spurious notification.
  */
 public class ReviewerAddedCondition implements ReviewNotificationCondition {
 
@@ -19,21 +21,20 @@ public class ReviewerAddedCondition implements ReviewNotificationCondition {
      *
      * <p>Returns a notification only when:
      * <ul>
-     *   <li>{@code next} is non-null and contains reviewers</li>
+     *   <li>Both {@code previous} and {@code next} are non-null</li>
      *   <li>The {@code currentUser} is present in {@code next}'s reviewer list</li>
-     *   <li>The {@code currentUser} was absent from {@code previous}'s reviewer list
-     *       (or {@code previous} was {@code null})</li>
+     *   <li>The {@code currentUser} was absent from {@code previous}'s reviewer list</li>
      * </ul>
      */
     @Override
     public Optional<Notification> evaluate(ReviewContext previous, ReviewContext next, String currentUser) {
-        if (next == null || currentUser == null || currentUser.isBlank()) {
+        if (previous == null || next == null || currentUser == null || currentUser.isBlank()) {
             return Optional.empty();
         }
         if (!isReviewer(next, currentUser)) {
             return Optional.empty();
         }
-        if (previous != null && isReviewer(previous, currentUser)) {
+        if (isReviewer(previous, currentUser)) {
             return Optional.empty();
         }
         String title = "Added as Reviewer";

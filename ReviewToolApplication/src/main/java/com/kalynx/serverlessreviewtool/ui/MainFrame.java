@@ -8,7 +8,6 @@ import com.kalynx.serverlessreviewtool.git.ReviewCloneManager;
 import com.kalynx.serverlessreviewtool.managers.PluginManager;
 import com.kalynx.serverlessreviewtool.managers.RepositoryManager;
 import com.kalynx.serverlessreviewtool.managers.ReviewContextManager;
-import com.kalynx.serverlessreviewtool.managers.ReviewItemManager;
 import com.kalynx.serverlessreviewtool.managers.UserManager;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.notifications.ReviewNotificationService;
@@ -57,7 +56,6 @@ public class MainFrame extends ThemedFrame {
     private final SettingsManager settingsManager;
     private final PluginManager pluginManager;
     private final RepositoryManager repositoryManager;
-    private final ReviewItemManager reviewItemManager;
     private final ReviewContextManager reviewContextManager;
     private final ReviewFormModels reviewFormModels;
     private final ReviewSelectionPanelModel reviewSelectionPanelModel;
@@ -84,7 +82,6 @@ public class MainFrame extends ThemedFrame {
             SettingsManager settingsManager,
             PluginManager pluginManager,
             RepositoryManager repositoryManager,
-            ReviewItemManager reviewItemManager,
             ReviewContextManager reviewContextManager,
             ReviewFormModels reviewFormModels,
             ReviewSelectionPanelModel reviewSelectionPanelModel,
@@ -99,7 +96,6 @@ public class MainFrame extends ThemedFrame {
         this.settingsManager = settingsManager;
         this.pluginManager = pluginManager;
         this.repositoryManager = repositoryManager;
-        this.reviewItemManager = reviewItemManager;
         this.reviewContextManager = reviewContextManager;
         this.reviewFormModels = reviewFormModels;
         this.reviewSelectionPanelModel = reviewSelectionPanelModel;
