@@ -53,6 +53,33 @@ public final class MetricsPoller {
         if (scheduler != null) scheduler.shutdownNow();
     }
 
+    /**
+     * Clears all accumulated time-series data and resets the connected flag.
+     * Call this before reconnecting so charts start fresh.
+     */
+    public void clearBuffers() {
+        cpuSamples.clear();
+        memorySamples.clear();
+        connectionSamples.clear();
+        apiCallSamples.clear();
+        perCoreSamples.forEach(LocalTimeSeriesBuffer::clear);
+        sseEventBuffers.values().forEach(LocalTimeSeriesBuffer::clear);
+        webhookBuffers.values().forEach(LocalTimeSeriesBuffer::clear);
+        restCallBuffers.values().forEach(LocalTimeSeriesBuffer::clear);
+        connected   = false;
+        memoryMaxMb = 0;
+    }
+
+    /**
+     * Stops the poller, clears all buffers, and restarts polling.
+     * Used when the user changes the connection settings.
+     */
+    public void restart() {
+        stop();
+        clearBuffers();
+        start();
+    }
+
     private void poll() {
         try {
             IndexerClient.MetricsSnapshot snap = client.getMetrics();

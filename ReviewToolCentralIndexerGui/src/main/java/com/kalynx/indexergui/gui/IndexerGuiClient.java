@@ -5,7 +5,9 @@ import com.kalynx.indexergui.client.MetricsPoller;
 import com.kalynx.indexergui.gui.panel.CategoryMetricsPanel;
 import com.kalynx.indexergui.gui.panel.ConnectionsPanel;
 import com.kalynx.indexergui.gui.panel.QueryPanel;
+import com.kalynx.indexergui.gui.panel.SettingsPanel;
 import com.kalynx.indexergui.gui.panel.StatisticsPanel;
+import com.kalynx.indexergui.settings.GuiSettings;
 import com.kalynx.swingtheme.themedcomponents.ThemedFrame;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 
@@ -21,12 +23,13 @@ public final class IndexerGuiClient extends ThemedFrame {
     private final MetricsPoller poller;
     private final IndexerClient client;
 
-    private StatisticsPanel     statisticsPanel;
-    private ConnectionsPanel    connectionsPanel;
+    private StatisticsPanel      statisticsPanel;
+    private ConnectionsPanel     connectionsPanel;
     private CategoryMetricsPanel eventsPanel;
     private CategoryMetricsPanel webhooksPanel;
     private CategoryMetricsPanel restPanel;
-    private ThemedPanel         currentPanel;
+    private SettingsPanel        settingsPanel;
+    private ThemedPanel          currentPanel;
 
     private final Map<String, QueryPanel> queryPanels = new HashMap<>();
 
@@ -47,22 +50,22 @@ public final class IndexerGuiClient extends ThemedFrame {
                 new MenuItem("Reviews",      () -> showQueryPanel("Reviews")),
                 new MenuItem("Branches",     () -> showQueryPanel("Branches")),
                 new MenuItem("Repositories", () -> showQueryPanel("Repositories")),
-                new MenuItem("Comments",     () -> showQueryPanel("Comments"))
+                new MenuItem("Comments",     () -> showQueryPanel("Comments")),
+                new MenuItem("Settings",     this::showSettings)
         );
 
-        statisticsPanel = new StatisticsPanel(poller);
-
+        statisticsPanel  = new StatisticsPanel(poller);
         connectionsPanel = new ConnectionsPanel(poller);
+        settingsPanel    = new SettingsPanel(poller, this::onSettingsConnect);
 
-        eventsPanel  = new CategoryMetricsPanel("Event Notifications by Type",
+        eventsPanel   = new CategoryMetricsPanel("Event Notifications by Type",
                 poller::getSseEventBuffers);
         webhooksPanel = new CategoryMetricsPanel("Webhook Calls by Type",
                 poller::getWebhookBuffers);
-        restPanel    = new CategoryMetricsPanel("REST Calls by Endpoint",
+        restPanel     = new CategoryMetricsPanel("REST Calls by Endpoint",
                 poller::getRestCallBuffers);
 
         contentPanel.setLayout(new BorderLayout());
-        // Show the dashboard without starting the refresh timer — Main.startRefresh() does that.
         switchTo(statisticsPanel);
         setWindowTitle("Central Indexer — Dashboard");
     }
@@ -102,6 +105,20 @@ public final class IndexerGuiClient extends ThemedFrame {
         setWindowTitle("Central Indexer — REST Calls");
     }
 
+    private void showSettings() {
+        stopLivePanels();
+        switchTo(settingsPanel);
+        settingsPanel.startRefresh();
+        setWindowTitle("Central Indexer — Settings");
+    }
+
+    private void onSettingsConnect(GuiSettings settings) {
+        client.setConnection(settings.getHost(), settings.getPort());
+        poller.restart();
+        setWindowTitle("Central Indexer — " + settings.getHost() + ":" + settings.getPort());
+        showDashboard();
+    }
+
     private void showQueryPanel(String table) {
         stopLivePanels();
         QueryPanel qp = queryPanels.computeIfAbsent(table, t -> {
@@ -119,6 +136,7 @@ public final class IndexerGuiClient extends ThemedFrame {
         eventsPanel.stopRefresh();
         webhooksPanel.stopRefresh();
         restPanel.stopRefresh();
+        settingsPanel.stopRefresh();
     }
 
     private void switchTo(ThemedPanel panel) {

@@ -67,16 +67,34 @@ public final class IndexerClient {
 
     // --- fields ------------------------------------------------------------------
 
-    private final String     baseUrl;
+    private volatile String  baseUrl;
     private final HttpClient http;
     private final Gson       gson;
 
+    /**
+     * Constructs an {@code IndexerClient} targeting the given host and port.
+     *
+     * @param host indexer host name or IP address
+     * @param port indexer HTTP port
+     */
     public IndexerClient(String host, int port) {
         this.baseUrl = "http://" + host + ":" + port;
         this.http    = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
         this.gson    = new GsonBuilder().serializeNulls().create();
+    }
+
+    /**
+     * Updates the target host and port without replacing the underlying HTTP client.
+     * Safe to call while requests may be in-flight; subsequent requests will use
+     * the new address.
+     *
+     * @param host new indexer host name or IP address
+     * @param port new indexer HTTP port
+     */
+    public void setConnection(String host, int port) {
+        this.baseUrl = "http://" + host + ":" + port;
     }
 
     // --- metrics -----------------------------------------------------------------

@@ -70,7 +70,7 @@ public final class StatisticsPanel extends ThemedPanel {
         setOpaque(true);
 
         // --- connection status row -----------------------------------------------
-        statusLabel = new ThemedLabel("Connecting…");
+        statusLabel = new ThemedLabel("Connectingâ€¦");
         statusLabel.setFont(tm.getBaseFont().deriveFont(Font.BOLD, tm.scale(11)));
         add(statusLabel, "growx, wrap");
 
@@ -87,7 +87,7 @@ public final class StatisticsPanel extends ThemedPanel {
         tm.addThemeChangeListener(() -> applyBorder(cpuBlock, new Color(58, 150, 221)));
         applyBorder(cpuBlock, new Color(58, 150, 221));
 
-        cpuTotalLabel = new ThemedLabel("Total CPU Usage: —");
+        cpuTotalLabel = new ThemedLabel("Total CPU Usage: â€”");
         cpuTotalLabel.setFont(tm.getBaseFont().deriveFont(Font.BOLD, tm.scale(13)));
         cpuTotalLabel.setForeground(new Color(58, 150, 221));
         cpuBlock.add(cpuTotalLabel, "growx, wrap");
@@ -156,7 +156,7 @@ public final class StatisticsPanel extends ThemedPanel {
             statusLabel.setText("Connected");
             statusLabel.setForeground(new Color(80, 200, 120));
         } else {
-            statusLabel.setText("Disconnected — retrying…");
+            statusLabel.setText("Disconnected â€” retryingâ€¦");
             statusLabel.setForeground(new Color(221, 80, 80));
         }
 
@@ -173,8 +173,8 @@ public final class StatisticsPanel extends ThemedPanel {
             int gap    = tm.scale(6);
             int labelW = fm.stringWidth("CPU 000: 000.0%") + gap;
             int panelW = coreGridPanel.getWidth();
-            // Account for inter-column gaps: each cell = (panelW - gap*(cols-1)) / cols ≥ labelW - gap
-            // → cols ≤ (panelW + gap) / labelW.  Fall back to 4 if not yet laid out.
+            // Account for inter-column gaps: each cell = (panelW - gap*(cols-1)) / cols â‰¥ labelW - gap
+            // â†’ cols â‰¤ (panelW + gap) / labelW.  Fall back to 4 if not yet laid out.
             int cols = Math.max(1, panelW > 0 ? Math.max(1, (panelW + gap) / labelW) : 4);
 
             if (coreLabels.length != n || cols != lastCoreColCount) {
@@ -221,7 +221,7 @@ public final class StatisticsPanel extends ThemedPanel {
     }
 
     private static String formatDisk(long freeMb, long totalMb) {
-        if (totalMb <= 0) return "—";
+        if (totalMb <= 0) return "â€”";
         return formatMb(freeMb) + " free\nof " + formatMb(totalMb);
     }
 
@@ -232,7 +232,7 @@ public final class StatisticsPanel extends ThemedPanel {
     }
 
     // =====================================================================
-    // MetricCard — compact summary card with a single value
+    // MetricCard â€” compact summary card with a single value
     // =====================================================================
 
     private final class MetricCard extends ThemedPanel {
@@ -249,7 +249,7 @@ public final class StatisticsPanel extends ThemedPanel {
             titleLabel = new ThemedLabel(title);
             titleLabel.setFont(tm.getBaseFont().deriveFont(Font.BOLD, tm.scale(11)));
 
-            valueLabel = new ThemedLabel("—");
+            valueLabel = new ThemedLabel("â€”");
             valueLabel.setFont(tm.getBaseFont().deriveFont(Font.BOLD, (float) tm.scale(20)));
             valueLabel.setForeground(accent);
 
@@ -306,7 +306,12 @@ public final class StatisticsPanel extends ThemedPanel {
             this.unit      = unit;
             this.fixedMax  = fixedMax;
             setOpaque(true);
-            ThemeManager.getInstance().addThemeChangeListener(this::repaint);
+            ThemeManager tm = ThemeManager.getInstance();
+            tm.addThemeChangeListener(() -> {
+                setBackground(tm.getCurrentTheme().getBackgroundColor());
+                repaint();
+            });
+            setBackground(tm.getCurrentTheme().getBackgroundColor());
             setupHoverListeners();
         }
 
@@ -351,7 +356,6 @@ public final class StatisticsPanel extends ThemedPanel {
             super.paintComponent(g);
 
             Theme theme = ThemeManager.getInstance().getCurrentTheme();
-            setBackground(theme.getBackgroundColor());
 
             int w = getWidth(), h = getHeight();
             if (w < LEFT_PAD + RIGHT_PAD + 20 || h < TOP_PAD + BOT_PAD + 20) return;
@@ -390,8 +394,6 @@ public final class StatisticsPanel extends ThemedPanel {
             g2.setColor(gridColor);
             g2.setStroke(new BasicStroke(0.5f));
             g2.drawRect(chartX, chartY, chartW, chartH);
-
-            Shape originalClip = g2.getClip();
             g2.clipRect(chartX, chartY, chartW, chartH);
 
             boolean single = datasets.size() == 1;
@@ -445,13 +447,16 @@ public final class StatisticsPanel extends ThemedPanel {
                 g2.drawString(msg, chartX + (chartW - mw) / 2, chartY + chartH / 2);
             }
 
-            g2.setClip(originalClip);
+            g2.dispose();
 
             if (hoverX >= chartX && hoverX <= chartX + chartW) {
-                drawHoverOverlay(g2, chartX, chartY, chartW, chartH, yMax, fm, labelFont, theme);
+                Graphics2D og = (Graphics2D) g.create();
+                og.setRenderingHint(RenderingHints.KEY_ANTIALIASING,      RenderingHints.VALUE_ANTIALIAS_ON);
+                og.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                og.setFont(labelFont);
+                drawHoverOverlay(og, chartX, chartY, chartW, chartH, yMax, og.getFontMetrics(), labelFont, theme);
+                og.dispose();
             }
-
-            g2.dispose();
         }
 
         private void drawHoverOverlay(Graphics2D g2, int chartX, int chartY, int chartW, int chartH,
@@ -524,13 +529,21 @@ public final class StatisticsPanel extends ThemedPanel {
             return lines;
         }
 
-        private void drawTooltipBox(Graphics2D g2, List<String> lines, FontMetrics fm, Font labelFont,
+        private void drawTooltipBox(Graphics2D g2, List<String> lines, FontMetrics plainFm, Font labelFont,
                                     int chartX, int chartY, int chartW, int chartH,
                                     Theme theme, Color valueColor) {
-            int padding = 6;
-            int lineH   = fm.getHeight();
-            int boxW    = lines.stream().mapToInt(fm::stringWidth).max().orElse(40) + padding * 2;
-            int boxH    = lines.size() * lineH + padding * 2;
+            Font        boldFont   = labelFont.deriveFont(Font.BOLD);
+            FontMetrics boldFm     = g2.getFontMetrics(boldFont);
+            int         padding    = 6;
+            int         lineH      = Math.max(plainFm.getHeight(), boldFm.getHeight());
+
+            int boxW = 0;
+            for (int i = 0; i < lines.size(); i++) {
+                FontMetrics fmForLine = i == 0 ? plainFm : boldFm;
+                boxW = Math.max(boxW, fmForLine.stringWidth(lines.get(i)));
+            }
+            boxW += padding * 2;
+            int boxH = lines.size() * lineH + padding * 2;
 
             int tipX = hoverX + 12;
             if (tipX + boxW > chartX + chartW) tipX = hoverX - boxW - 12;
@@ -547,14 +560,14 @@ public final class StatisticsPanel extends ThemedPanel {
             g2.drawRoundRect(tipX, tipY, boxW, boxH, 6, 6);
 
             int textX = tipX + padding;
-            int textY = tipY + padding + fm.getAscent();
+            int textY = tipY + padding + plainFm.getAscent();
             for (int i = 0; i < lines.size(); i++) {
                 if (i == 0) {
                     g2.setColor(theme.getSecondaryTextColor());
                     g2.setFont(labelFont);
                 } else {
                     g2.setColor(valueColor);
-                    g2.setFont(labelFont.deriveFont(Font.BOLD));
+                    g2.setFont(boldFont);
                 }
                 g2.drawString(lines.get(i), textX, textY + i * lineH);
             }

@@ -55,4 +55,11 @@ public final class LocalTimeSeriesBuffer {
                 .filter(s -> s.timestampMs() >= cutoff)
                 .toList();
     }
+
+    /**
+     * Removes all samples from this buffer.
+     */
+    public void clear() {
+        samples.clear();
+    }
 }
