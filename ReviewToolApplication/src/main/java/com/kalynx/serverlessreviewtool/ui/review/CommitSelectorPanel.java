@@ -62,6 +62,20 @@ public class CommitSelectorPanel extends ThemedPanel {
 
     private void setupModelListeners() {
         codeViewerModel.selectedFile.addChangeListener(this::onFileSelected);
+        codeViewerModel.availableFiles.addChangeListener(this::onAvailableFilesRefreshed);
+    }
+
+    private void onAvailableFilesRefreshed(java.util.List<ReviewFile> files) {
+        ReviewFile current = codeViewerModel.selectedFile.getValue();
+        if (current == null || files == null || files.isEmpty()) {
+            return;
+        }
+        boolean currentFilePresent = files.stream()
+            .anyMatch(f -> f.getPath().equals(current.getPath())
+                        && f.getRepository().equals(current.getRepository()));
+        if (currentFilePresent) {
+            loadCommitsForFile(current);
+        }
     }
 
     private void onFileSelected(ReviewFile file) {

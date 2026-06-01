@@ -39,7 +39,7 @@ public class CodePanel extends ThemedPanel {
     private final FileNavigationPanel fileNavigationPanel;
     private final DiffViewerPanel diffViewerPanel;
     private final ThemedSplitPane fileAndDiffSplitPane = new ThemedSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-    
+
     private boolean commentsEnabled = false;
 
     public CodePanel(SettingsManager settingsManager, ReviewContextManager reviewContextManager, CodeViewerModel codeViewerModel,

@@ -4,6 +4,7 @@ import com.kalynx.serverlessreviewtool.models.Repository;
 import com.kalynx.serverlessreviewtool.models.ReviewContext;
 import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.BranchIndex;
 import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewListUpdate;
 import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewUpdateType;
 import com.kalynx.serverlessreviewtool.ui.models.mainpanels.reviewpanel.ReviewPanelModel;
@@ -84,6 +85,52 @@ public class ReviewAutoRefreshController {
         // from an orphan-branch push) cannot be attributed to a specific review and are
         // handled by ReviewItemManager alone — they must not trigger a full panel reload.
         return update.reviewId() != null && activeReviewId.equals(update.reviewId());
+    }
+
+    /**
+     * Handles branch update notifications from plugins. Triggers an auto-refresh if
+     * the updated branch matches the currently open review's branch.
+     *
+     * @param updates array of branch update events
+     */
+    public void onBranchUpdatesReceived(BranchIndex[] updates) {
+        if (updates == null || updates.length == 0) {
+            return;
+        }
+        ReviewContext context = contextSupplier.get();
+        if (context == null || context.getReviewId() == null || context.getReviewId().isBlank()) {
+            return;
+        }
+        String reviewBranch = context.getBranch();
+        if (reviewBranch == null) {
+            return;
+        }
+        boolean isRelevant = Arrays.stream(updates)
+            .filter(Objects::nonNull)
+            .anyMatch(update -> branchMatches(reviewBranch, update.branchName()));
+        if (isRelevant) {
+            triggerAutoRefreshForOpenReview();
+        }
+    }
+
+    private boolean branchMatches(String reviewBranch, String updatedBranch) {
+        if (updatedBranch == null) {
+            return false;
+        }
+        return normalizeBranch(reviewBranch).equals(normalizeBranch(updatedBranch));
+    }
+
+    private String normalizeBranch(String branch) {
+        if (branch.startsWith("refs/remotes/origin/")) {
+            return branch.substring("refs/remotes/origin/".length());
+        }
+        if (branch.startsWith("refs/heads/")) {
+            return branch.substring("refs/heads/".length());
+        }
+        if (branch.startsWith("origin/")) {
+            return branch.substring("origin/".length());
+        }
+        return branch;
     }
 
     private void triggerAutoRefreshForOpenReview() {

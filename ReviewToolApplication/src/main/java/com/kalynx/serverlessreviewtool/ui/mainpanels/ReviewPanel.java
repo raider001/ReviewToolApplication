@@ -14,6 +14,7 @@ import com.kalynx.serverlessreviewtool.models.ReviewItem;
 import com.kalynx.serverlessreviewtool.models.ReviewStatus;
 import com.kalynx.serverlessreviewtool.models.ReviewerInfo;
 import com.kalynx.serverlessreviewtool.plugin.NotificationPlugin;
+import com.kalynx.serverlessreviewtool.plugin.dataobjects.BranchIndex;
 import com.kalynx.serverlessreviewtool.plugin.dataobjects.ReviewListUpdate;
 import com.kalynx.swingtheme.themedcomponents.ThemedPanel;
 import com.kalynx.swingtheme.themedcomponents.ThemedSplitPane;
@@ -153,15 +154,22 @@ public class ReviewPanel extends ThemedPanel {
         reviewContextManager.addListener(this::onReviewContextChanged);
         settingsManager.addUserNameListener(model.commentsPanelModel::setCurrentUser);
         model.reviewDetailModel.status.addChangeListener(this::onReviewStatusChanged);
-        pluginManager.getNotificationPlugin().ifPresent(plugin ->
+        pluginManager.getNotificationPlugin().ifPresent(plugin -> {
             plugin.addListener(NotificationPlugin.NotificationType.REVIEW_UPDATED, payloads -> {
                 ReviewListUpdate[] updates = java.util.Arrays.stream(payloads)
                     .filter(ReviewListUpdate.class::isInstance)
                     .map(ReviewListUpdate.class::cast)
                     .toArray(ReviewListUpdate[]::new);
                 if (updates.length > 0) autoRefreshController.onReviewUpdatesReceived(updates);
-            })
-        );
+            });
+            plugin.addListener(NotificationPlugin.NotificationType.BRANCH_UPDATED, payloads -> {
+                BranchIndex[] updates = java.util.Arrays.stream(payloads)
+                    .filter(BranchIndex.class::isInstance)
+                    .map(BranchIndex.class::cast)
+                    .toArray(BranchIndex[]::new);
+                if (updates.length > 0) autoRefreshController.onBranchUpdatesReceived(updates);
+            });
+        });
     }
 
     private void configureLayout() {
